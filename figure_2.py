@@ -32,7 +32,6 @@ N_BINS_TOTAL = 6
 
 OUT_DIR = Path(".")
 OUT_FIG_PNG = OUT_DIR / "figure_2.png"
-OUT_FIG_PDF = OUT_DIR / "figure_2.pdf"
 OUT_CSV = OUT_DIR / "figure_2.csv"
 OUT_JSON = OUT_DIR / "figure_2.json"
 
@@ -265,7 +264,6 @@ def main() -> None:
 
     print("\nSaved:")
     print(f"  {OUT_FIG_PNG}")
-    print(f"  {OUT_FIG_PDF}")
     print(f"  {OUT_CSV}")
     print(f"  {OUT_JSON}")
 

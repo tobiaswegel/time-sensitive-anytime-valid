@@ -602,8 +602,8 @@ def maybe_plot(
         cbar.set_label(colorbar_label)
 
     save_path = output_path or "figure_1.png"
-    paths = save_figure(fig, save_path, dpi=400)
-    print("Saved plots: " + ", ".join(map(str, paths)))
+    path = save_figure(fig, save_path, dpi=400)
+    print(f"Saved plot: {path}")
 
     if show_plot:
         plt.show()

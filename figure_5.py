@@ -486,8 +486,8 @@ def maybe_plot(
     fig.tight_layout()
 
     save_path = output_path or "figure_5.png"
-    paths = save_figure(fig, save_path)
-    print("Saved plots: " + ", ".join(map(str, paths)))
+    path = save_figure(fig, save_path)
+    print(f"Saved plot: {path}")
 
     if show_plot:
         plt.show()
@@ -554,7 +554,7 @@ def parse_args() -> argparse.Namespace:
         "--output",
         type=str,
         default="",
-        help="Figure path; both PNG and PDF versions are saved.",
+        help="Output PNG path.",
     )
     parser.add_argument(
         "--results-path",

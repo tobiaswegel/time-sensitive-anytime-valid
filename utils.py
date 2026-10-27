@@ -54,10 +54,8 @@ def tick_label_decimal(value: float) -> str:
 
 
 def save_figure(figure, output_path, dpi=450):
-    """Save PNG and PDF versions of a figure with the same filename stem."""
-    stem = Path(output_path)
-    stem.parent.mkdir(parents=True, exist_ok=True)
-    paths = tuple(stem.with_suffix(suffix) for suffix in (".png", ".pdf"))
-    for path in paths:
-        figure.savefig(path, dpi=dpi, bbox_inches="tight")
-    return paths
+    """Save a figure as PNG and return its path."""
+    path = Path(output_path).with_suffix(".png")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(path, dpi=dpi, bbox_inches="tight")
+    return path

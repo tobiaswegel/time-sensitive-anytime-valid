@@ -785,7 +785,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         default="figure_6.png",
-        help="Figure path; both PNG and PDF versions are saved.",
+        help="Output PNG path.",
     )
     parser.add_argument("--dpi", type=int, default=400, help="Output image DPI.")
     parser.add_argument("--panel-width", type=float, default=4.0, help="Width per panel.")
@@ -814,9 +814,7 @@ def main() -> None:
     args = parse_args()
     summaries = plot_cdfs_multi_horizon(args)
 
-    print(
-        f"Saved plots: {Path(args.output).with_suffix('.png')} and {Path(args.output).with_suffix('.pdf')}"
-    )
+    print(f"Saved plot: {Path(args.output).with_suffix('.png')}")
 
     for summary in summaries:
         H = summary["horizon"]
