@@ -1,0 +1,18 @@
+# Local environment and caches
+.venv/
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.DS_Store
+
+# Reproduction outputs and local validation material
+results/
+validation/
+time-sensitive-anytime-valid-5CD7/
+/time_for_coins-7.pdf
+
+# Outputs when individual scripts run from the repository root
+/*.png
+/*.pdf
+/*.csv
+/*.json

@@ -1,19 +1,4 @@
-r"""
-Power of the Bernoulli constant strategy from the proposition.
-
-This script:
-    - computes the constant-strategy quantities for a Bernoulli model,
-    - estimates power under pi_1^{\otimes},
-    - plots power together with the proposition lower/upper bounds,
-    - marks the threshold T = 1 / KL(pi_1 || pi_0).
-
-Model:
-    pi_0 = Bernoulli(p0)
-    pi_1 = Bernoulli(p1)
-
-Colab-safe:
-    uses parse_known_args() so Jupyter/Colab's internal arguments are ignored.
-"""
+"""Figure 5: Bernoulli EDO power estimates and theoretical bounds."""
 
 from __future__ import annotations
 
@@ -26,38 +11,30 @@ from typing import Any
 
 import numpy as np
 
-
-# ============================================================
 # Core helpers
-# ============================================================
+
 
 def logsumexp_pair(a: float, b: float) -> float:
-    """Stable log(exp(a) + exp(b)) for two scalars."""
+    """Compute log(exp(a) + exp(b)) without overflowing."""
     m = max(a, b)
     return m + math.log(math.exp(a - m) + math.exp(b - m))
 
 
 def check_probability(p: float, name: str) -> None:
+    """Check that a probability is strictly between zero and one."""
     if not (0.0 < p < 1.0):
         raise ValueError(f"{name} must lie in (0, 1).")
 
 
 def bernoulli_kl(p1: float, p0: float) -> float:
-    """KL(Bern(p1) || Bern(p0))."""
+    """Return the KL divergence between two Bernoulli distributions."""
     check_probability(p0, "p0")
     check_probability(p1, "p1")
-    return (
-        p1 * math.log(p1 / p0)
-        + (1.0 - p1) * math.log((1.0 - p1) / (1.0 - p0))
-    )
+    return p1 * math.log(p1 / p0) + (1.0 - p1) * math.log((1.0 - p1) / (1.0 - p0))
 
 
 def bernoulli_likelihood_ratio_values(p0: float, p1: float) -> tuple[float, float]:
-    """
-    Likelihood-ratio values under X=0 and X=1:
-        l0 = (1-p1)/(1-p0)
-        l1 = p1/p0
-    """
+    """Return the likelihood ratios for observations zero and one."""
     return (1.0 - p1) / (1.0 - p0), p1 / p0
 
 
@@ -66,23 +43,15 @@ def bernoulli_constant_e_variable(
     p1: float,
     eta: float,
 ) -> tuple[float, float]:
-    """
-    Constant e-variable associated with the eta-tilted construction.
-
-    Returns:
-        f0, f1
-    """
+    """Return the EDO bet payoffs for observations zero and one."""
     l0, l1 = bernoulli_likelihood_ratio_values(p0, p1)
     exponent = 1.0 / (1.0 - eta)
-    normalizer = (1.0 - p0) * (l0 ** exponent) + p0 * (l1 ** exponent)
-    return (l0 ** exponent) / normalizer, (l1 ** exponent) / normalizer
+    normalizer = (1.0 - p0) * (l0**exponent) + p0 * (l1**exponent)
+    return (l0**exponent) / normalizer, (l1**exponent) / normalizer
 
 
 def log_optimal_eta_moment(p0: float, p1: float, eta: float) -> float:
-    """
-    Computes:
-        (1 - eta) log E_{pi_0}[L^{1/(1-eta)}]
-    """
+    """Return the log moment used to choose the EDO exponent."""
     l0, l1 = bernoulli_likelihood_ratio_values(p0, p1)
     exponent = 1.0 / (1.0 - eta)
     log_z = logsumexp_pair(
@@ -99,10 +68,7 @@ def solve_eta_star(
     tol: float = 1e-12,
     max_iter: int = 200,
 ) -> dict[str, float]:
-    """
-    Solve eta_star from:
-        log_optimal_eta_moment(p0, p1, eta_star) = 1 / T
-    """
+    """Find the EDO exponent by bisection for the given time scale."""
     if time_scale <= 0.0:
         raise ValueError("time_scale must be positive.")
 
@@ -140,13 +106,13 @@ def solve_eta_star(
 
 
 def compute_drift(p1: float, f0: float, f1: float) -> float:
-    """Log-wealth drift under pi_1."""
+    """Return the average log-wealth increment under the alternative."""
     return (1.0 - p1) * math.log(f0) + p1 * math.log(f1)
 
 
 def log_mgf_under_pi1(p1: float, f0: float, f1: float, kappa: float) -> float:
-    """log E_{pi_1}[f(X)^kappa]."""
-    return math.log((1.0 - p1) * (f0 ** kappa) + p1 * (f1 ** kappa))
+    """Return the log moment of the bet under the alternative."""
+    return math.log((1.0 - p1) * (f0**kappa) + p1 * (f1**kappa))
 
 
 def solve_kappa(
@@ -156,10 +122,7 @@ def solve_kappa(
     tol: float = 1e-12,
     max_iter: int = 200,
 ) -> float:
-    """
-    Solve kappa > 0 such that:
-        E_{pi_1}[f(X)^kappa] = 1.
-    """
+    """Find the positive power-bound exponent for negative log drift."""
     drift = compute_drift(p1, f0, f1)
     if drift >= 0.0:
         return 0.0
@@ -187,27 +150,22 @@ def solve_kappa(
     return float(0.5 * (lo + hi))
 
 
-# ============================================================
 # Confidence intervals and power estimation
-# ============================================================
+
 
 def wilson_interval(
     successes: int,
     trials: int,
     z: float = 1.959963984540054,
 ) -> tuple[float, float]:
-    """Wilson confidence interval for a Bernoulli proportion."""
+    """Return a Wilson confidence interval for a binomial proportion."""
     if trials <= 0:
         return 0.0, 1.0
 
     phat = successes / trials
     denom = 1.0 + z * z / trials
     center = (phat + z * z / (2.0 * trials)) / denom
-    radius = (
-        z
-        * math.sqrt((phat * (1.0 - phat) + z * z / (4.0 * trials)) / trials)
-        / denom
-    )
+    radius = z * math.sqrt((phat * (1.0 - phat) + z * z / (4.0 * trials)) / trials) / denom
     return max(0.0, center - radius), min(1.0, center + radius)
 
 
@@ -223,12 +181,13 @@ def estimate_power_monte_carlo(
     trunc_tol: float,
     seed: int,
 ) -> dict[str, Any]:
-    r"""
-    Estimate power under pi_1^{\otimes} by Monte Carlo.
-
-    Uses an early-stopping truncation rule for deeply sub-threshold paths,
-    together with an upper bound on the residual tail contribution.
-    """
+    """Estimate eventual power and bound the contribution of truncated paths."""
+    check_probability(p1, "p1")
+    check_probability(alpha, "alpha")
+    if n_sim < 1 or batch_size < 1 or max_steps < 1:
+        raise ValueError("n_sim, batch_size, and max_steps must be positive.")
+    if not 0.0 < trunc_tol < 1.0:
+        raise ValueError("trunc_tol must lie in (0, 1).")
     rng = np.random.default_rng(seed)
 
     log_thr = math.log(1.0 / alpha)
@@ -304,9 +263,8 @@ def estimate_power_monte_carlo(
     }
 
 
-# ============================================================
 # Result construction
-# ============================================================
+
 
 def build_row(
     time_scale: float,
@@ -319,6 +277,7 @@ def build_row(
     trunc_tol: float,
     seed: int,
 ) -> dict[str, Any]:
+    """Compute the power estimate and theoretical bounds for one time scale."""
     theorem = solve_eta_star(p0=p0, p1=p1, time_scale=time_scale)
 
     f0 = theorem["f0_star"]
@@ -374,7 +333,7 @@ def build_row(
             "ci_low": mc["ci_low"],
             "ci_high": mc["ci_high"],
             "prop_lower": (alpha / theorem["B_star"]) ** kappa,
-            "prop_upper": alpha ** kappa,
+            "prop_upper": alpha**kappa,
             "method": mc["method"],
             "hit_count": mc["hit_count"],
             "n_sim": mc["n_sim"],
@@ -384,15 +343,12 @@ def build_row(
     return row
 
 
-def sanitize_row(row: dict[str, Any]) -> dict[str, Any]:
-    return dict(row)
-
-
 def save_results(
     results: list[dict[str, Any]],
     args: argparse.Namespace,
     output_path: str | Path,
 ) -> None:
+    """Save the parameters and numerical results."""
     payload = {
         "parameters": {
             "p0": args.p0,
@@ -405,7 +361,7 @@ def save_results(
             "trunc_tol": args.trunc_tol,
             "seed": args.seed,
         },
-        "results": [sanitize_row(row) for row in results],
+        "results": results,
     }
 
     with open(output_path, "w", encoding="utf-8") as f:
@@ -413,6 +369,7 @@ def save_results(
 
 
 def load_results(input_path: str | Path) -> list[dict[str, Any]]:
+    """Load previously saved numerical results."""
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"Results file not found: {input_path}")
 
@@ -422,11 +379,11 @@ def load_results(input_path: str | Path) -> list[dict[str, Any]]:
     return payload["results"]
 
 
-# ============================================================
 # Plotting
-# ============================================================
+
 
 def configure_plot_fonts(plt_module) -> None:
+    """Set the fonts and sizes used in the paper plot."""
     plt_module.rcParams.update(
         {
             "font.family": "serif",
@@ -450,6 +407,7 @@ def maybe_plot(
     output_path: str,
     show_plot: bool,
 ) -> None:
+    """Draw and save the figure, optionally displaying it."""
     os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-power-proposition")
 
     import matplotlib
@@ -535,11 +493,11 @@ def maybe_plot(
         plt.close(fig)
 
 
-# ============================================================
 # CLI
-# ============================================================
+
 
 def parse_args() -> argparse.Namespace:
+    """Read experiment and output options from the command line."""
     parser = argparse.ArgumentParser(
         description=(
             "Plot the power of the Bernoulli constant strategy from the proposition, "
@@ -581,10 +539,7 @@ def parse_args() -> argparse.Namespace:
         "--trunc-tol",
         type=float,
         default=1e-8,
-        help=(
-            "Per-path upper-bound tolerance used to stop deep sub-threshold "
-            "paths early."
-        ),
+        help=("Per-path upper-bound tolerance used to stop deep sub-threshold paths early."),
     )
     parser.add_argument("--seed", type=int, default=0, help="RNG seed.")
 
@@ -611,17 +566,14 @@ def parse_args() -> argparse.Namespace:
         help="Load results from --results-path and skip recomputing.",
     )
 
-    # Colab/Jupyter passes its own arguments, e.g. "-f kernel.json".
-    # parse_known_args keeps this script usable both in notebooks and from CLI.
-    args, _ = parser.parse_known_args()
-    return args
+    return parser.parse_args()
 
 
-# ============================================================
 # Main
-# ============================================================
+
 
 def main() -> None:
+    """Run the experiment and save its outputs."""
     args = parse_args()
 
     if args.reuse_results and not args.results_path:
@@ -648,10 +600,7 @@ def main() -> None:
         if args.results_path:
             save_results(results, args, args.results_path)
 
-    header = (
-        "      T      drift      kappa  power_est   ci_low  ci_high  "
-        "prop_low prop_up method"
-    )
+    header = "      T      drift      kappa  power_est   ci_low  ci_high  prop_low prop_up method"
     print(header)
     print("-" * len(header))
 

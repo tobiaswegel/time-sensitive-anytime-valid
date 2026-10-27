@@ -1,3 +1,5 @@
+"""Figure 1: Gaussian Bellman policies for hard, logistic, and exponential rewards."""
+
 import argparse
 import json
 import math
@@ -7,6 +9,7 @@ import numpy as np
 
 
 def build_lambda_grid(mu0, mu1, sigma, n_actions, lambda_max, two_sided):
+    """Create the Gaussian betting-action grid in the alternative’s direction."""
     if sigma <= 0.0:
         raise ValueError("sigma must be positive.")
     if n_actions < 2:
@@ -23,6 +26,7 @@ def build_lambda_grid(mu0, mu1, sigma, n_actions, lambda_max, two_sided):
 
 
 def gaussian_e_multiplier(x, mu0, sigma, lambdas):
+    """Return Gaussian bet payoffs for every action and quadrature node."""
     centered = x[None, :] - mu0
     lam = lambdas[:, None]
     log_f = lam * centered - 0.5 * (sigma * lam) ** 2
@@ -30,6 +34,7 @@ def gaussian_e_multiplier(x, mu0, sigma, lambdas):
 
 
 def gaussian_alt_quadrature(mu1, sigma, n_quad):
+    """Return Gaussian quadrature nodes and probabilities under the alternative."""
     if n_quad < 3:
         raise ValueError("n_quad must be at least 3.")
     nodes, weights = np.polynomial.hermite.hermgauss(n_quad)
@@ -39,6 +44,7 @@ def gaussian_alt_quadrature(mu1, sigma, n_quad):
 
 
 def precompute_interpolation(u_grid, multipliers):
+    """Locate next-wealth values on the wealth grid for fast interpolation."""
     points = np.minimum(multipliers[:, :, None] * u_grid[None, None, :], 1.0)
     idx = np.searchsorted(u_grid, points, side="right") - 1
     idx = np.clip(idx, 0, len(u_grid) - 2)
@@ -49,12 +55,14 @@ def precompute_interpolation(u_grid, multipliers):
 
 
 def interpolate_with_precompute(values, idx, weight):
+    """Interpolate values using precomputed grid indices and weights."""
     left = values[idx]
     right = values[idx + 1]
     return left + weight * (right - left)
 
 
 def wealth_edges_from_log_grid(log_u):
+    """Find cell edges around the plotted log-wealth grid points."""
     if log_u.size == 1:
         return np.array([log_u[0] - 0.5, log_u[0] + 0.5], dtype=float)
     mids = 0.5 * (log_u[:-1] + log_u[1:])
@@ -64,6 +72,7 @@ def wealth_edges_from_log_grid(log_u):
 
 
 def build_wealth_grid(n_wealth, grid_type, min_u):
+    """Create a linear or logarithmic wealth grid, including zero and one."""
     if n_wealth < 2:
         raise ValueError("n_wealth must be at least 2.")
     if grid_type == "linear":
@@ -76,14 +85,17 @@ def build_wealth_grid(n_wealth, grid_type, min_u):
 
 
 def build_exponential_rewards(time_scale, horizon):
+    """Return rewards exp(-t/time_scale) for times 1 through the horizon."""
     return np.exp(-np.arange(1, horizon + 1, dtype=float) / time_scale)
 
 
 def build_indicator_rewards(time_scale, horizon):
+    """Return reward one through the deadline and zero afterwards."""
     return (np.arange(1, horizon + 1, dtype=float) <= time_scale).astype(float)
 
 
 def build_logistic_rewards(time_scale, beta, horizon):
+    """Return rewards with a smooth logistic drop around the deadline."""
     if beta <= 0.0:
         raise ValueError("beta must be positive.")
     x = (np.arange(1, horizon + 1, dtype=float) - time_scale) / beta
@@ -91,6 +103,7 @@ def build_logistic_rewards(time_scale, beta, horizon):
 
 
 def build_linear_rewards(horizon):
+    """Return rewards decreasing linearly over the horizon."""
     return (horizon + 1.0 - np.arange(1, horizon + 1, dtype=float)) / horizon
 
 
@@ -108,6 +121,7 @@ def solve_optimal_policy_heatmap(
     wealth_grid="linear",
     min_u=1e-6,
 ):
+    """Solve the Gaussian Bellman recursion on wealth and action grids."""
     if sigma <= 0.0:
         raise ValueError("sigma must be positive.")
     if horizon < 1:
@@ -153,39 +167,13 @@ def solve_optimal_policy_heatmap(
     }
 
 
-def bellman_action_at_wealths(result, t, current_u, chunk_size=5000):
-    u_grid = result["u_grid"]
-    lambda_values = result["lambda_values"]
-    next_values = result["values"][t + 1]
-    reward_t = result["rewards"][t]
-    x_nodes, x_weights = gaussian_alt_quadrature(result["mu1"], result["sigma"], result["n_quad"])
-    multipliers = gaussian_e_multiplier(
-        x_nodes,
-        result["mu0"],
-        result["sigma"],
-        lambda_values,
-    )
-    lambda_out = np.empty_like(current_u, dtype=float)
-
-    for start in range(0, current_u.size, chunk_size):
-        stop = min(start + chunk_size, current_u.size)
-        u = current_u[start:stop]
-        next_u = np.minimum(multipliers[:, :, None] * u[None, None, :], 1.0)
-        cross = next_u >= 1.0 - 1e-15
-        continuation = np.interp(next_u.ravel(), u_grid, next_values).reshape(next_u.shape)
-        payoff = np.where(cross, reward_t, continuation)
-        candidates = np.sum(x_weights[None, :, None] * payoff, axis=1)
-        best = np.argmax(candidates, axis=0)
-        lambda_out[start:stop] = lambda_values[best]
-
-    return lambda_out
-
-
 def policy_lambda_at_wealths(result, t, current_u):
+    """Interpolate the saved policy at the current wealth values."""
     return np.interp(current_u, result["u_grid"], result["policy_lambda"][t])
 
 
 def simulate_policy_cdf(result, n_sim, seed, u0, cdf_mode):
+    """Estimate rejection probabilities using normal or quadrature observations."""
     horizon = result["policy_lambda"].shape[0]
 
     rng = np.random.default_rng(seed)
@@ -237,6 +225,7 @@ def simulate_policy_cdf(result, n_sim, seed, u0, cdf_mode):
 
 
 def nearest_grid_indices(u_grid, values):
+    """Find the closest wealth-grid point to each supplied value."""
     idx = np.searchsorted(u_grid, values, side="left")
     idx = np.clip(idx, 0, len(u_grid) - 1)
     left_idx = np.maximum(idx - 1, 0)
@@ -245,6 +234,7 @@ def nearest_grid_indices(u_grid, values):
 
 
 def reachable_policy_mask(result, u0):
+    """Mark wealth states reachable under the discretized policy dynamics."""
     if not (0.0 < u0 < 1.0):
         raise ValueError("u0 must lie in (0, 1) for reachable-state plotting.")
 
@@ -279,7 +269,10 @@ def reachable_policy_mask(result, u0):
 
 
 def save_results(results, args, output_path):
+    """Save the parameters and numerical results."""
+
     def serialize_result(result):
+        """Convert one policy’s arrays to JSON-compatible lists."""
         return {
             "u_grid": result["u_grid"].tolist(),
             "lambda_values": result["lambda_values"].tolist(),
@@ -300,7 +293,9 @@ def save_results(results, args, output_path):
             "mu1": args.mu1,
             "sigma": args.sigma,
             "time_scale": args.time_scale,
-            "exp_time_scale": args.time_scale if args.exp_time_scale is None else args.exp_time_scale,
+            "exp_time_scale": args.time_scale
+            if args.exp_time_scale is None
+            else args.exp_time_scale,
             "beta": args.beta,
             "horizon": args.horizon,
             "n_wealth": args.n_wealth,
@@ -329,12 +324,14 @@ def save_results(results, args, output_path):
 
 
 def load_results(input_path):
+    """Load previously saved numerical results."""
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"Results file not found: {input_path}")
     with open(input_path, "r", encoding="utf-8") as f:
         payload = json.load(f)
 
     def deserialize_result(result):
+        """Restore a saved policy’s lists as NumPy arrays."""
         return {
             "u_grid": np.array(result["u_grid"], dtype=float),
             "lambda_values": np.array(result["lambda_values"], dtype=float),
@@ -361,6 +358,7 @@ def load_results(input_path):
 
 
 def policy_quantity(result, quantity):
+    """Return actions or bet payoffs for heatmap coloring."""
     if quantity == "lambda":
         return result["policy_lambda"]
     if quantity == "f_mu0":
@@ -373,6 +371,7 @@ def policy_quantity(result, quantity):
 
 
 def finite_heat_values(heat_panels):
+    """Collect finite heatmap values after masking."""
     values = [panel["heat"][np.isfinite(panel["heat"])] for panel in heat_panels]
     values = [value for value in values if value.size > 0]
     if not values:
@@ -381,6 +380,7 @@ def finite_heat_values(heat_panels):
 
 
 def expanded_limits(vmin, vmax):
+    """Widen constant color limits so the color scale remains valid."""
     if vmin < vmax:
         return float(vmin), float(vmax)
     delta = max(abs(vmin), 1.0) * 1e-6
@@ -388,6 +388,7 @@ def expanded_limits(vmin, vmax):
 
 
 def color_limits_for_values(values, color_limits, color_quantile):
+    """Choose color limits from the full range or robust percentiles."""
     if color_limits == "robust":
         if not (50.0 < color_quantile <= 100.0):
             raise ValueError("color_quantile must lie in (50, 100].")
@@ -402,6 +403,7 @@ def color_limits_for_values(values, color_limits, color_quantile):
 
 
 def mesh_kwargs_for_values(values, bet_scale, color_limits, color_quantile):
+    """Build linear, log, or symmetric-log color-scale settings."""
     from matplotlib.colors import LogNorm, SymLogNorm
 
     vmin, vmax = color_limits_for_values(values, color_limits, color_quantile)
@@ -431,6 +433,7 @@ def maybe_plot(
     color_limits,
     color_quantile,
 ):
+    """Draw and save the figure, optionally displaying it."""
     os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-optimal-bet-heatmap")
     import matplotlib
 
@@ -465,7 +468,9 @@ def maybe_plot(
     if "linear_result" in results:
         panel_results.append(("linear_result", "linear reward"))
 
-    panel_data = [(key, title, policy_quantity(results[key], quantity)) for key, title in panel_results]
+    panel_data = [
+        (key, title, policy_quantity(results[key], quantity)) for key, title in panel_results
+    ]
     horizon = panel_data[0][2].shape[0]
     if max_t_plot is None:
         plot_horizon = max(1, horizon // 4)
@@ -605,6 +610,7 @@ def maybe_plot(
 
 
 def solve_and_simulate(args, rewards, seed):
+    """Solve one reward’s policy and estimate its rejection-time distribution."""
     result = solve_optimal_policy_heatmap(
         mu0=args.mu0,
         mu1=args.mu1,
@@ -632,6 +638,7 @@ def solve_and_simulate(args, rewards, seed):
 
 
 def parse_args():
+    """Read experiment and output options from the command line."""
     parser = argparse.ArgumentParser(
         description=(
             "Solve the finite-horizon Gaussian Bellman problem over exponential-tilt "
@@ -640,7 +647,9 @@ def parse_args():
     )
     parser.add_argument("--mu0", type=float, default=0.0, help="Null Gaussian mean.")
     parser.add_argument("--mu1", type=float, default=0.5, help="Alternative Gaussian mean.")
-    parser.add_argument("--sigma", type=float, default=1.0, help="Common Gaussian standard deviation.")
+    parser.add_argument(
+        "--sigma", type=float, default=1.0, help="Common Gaussian standard deviation."
+    )
     parser.add_argument(
         "--time-scale",
         type=float,
@@ -653,8 +662,18 @@ def parse_args():
         default=None,
         help="Parameter T used by the exponential reward. Defaults to --time-scale.",
     )
-    parser.add_argument("--beta", type=float, default=2.0, help="Slope parameter beta for the logistic reward.")
-    parser.add_argument("--horizon", type=int, default=40, help="Finite horizon used for backward induction.")
+    parser.add_argument(
+        "--beta",
+        type=float,
+        default=2.0,
+        help="Slope parameter beta for the logistic reward.",
+    )
+    parser.add_argument(
+        "--horizon",
+        type=int,
+        default=40,
+        help="Finite horizon used for backward induction.",
+    )
     parser.add_argument(
         "--n-wealth",
         type=int,
@@ -783,6 +802,7 @@ def parse_args():
 
 
 def main():
+    """Run the experiment and save its outputs."""
     args = parse_args()
     exp_time_scale = args.time_scale if args.exp_time_scale is None else args.exp_time_scale
     if args.reuse_results and not args.results_path:

@@ -1,23 +1,4 @@
-"""
-Gaussian uncapped GRO vs uncapped exponential-reward approximation.
-
-Model:
-    pi_0 = N(0, 1)
-    pi_1 = N(1/4, 1)
-
-Strategies:
-    GRO:        a = mu
-    EDO/Approx: a*(T) = mu + 2 sigma^2 / (mu T)
-
-Outputs:
-    - stacked PMF-bin / CDF figure
-    - exact step-CDF figure
-    - summary CSV
-    - curves JSON
-
-No Bellman. No capping.
-Uses common random numbers for cleaner curve comparisons.
-"""
+"""Figure 4: Gaussian GRO and EDO with time scales 8, 14, and 60."""
 
 import json
 import math
@@ -26,13 +7,12 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.colors import to_rgb
-from matplotlib.lines import Line2D
 
+from plotting import plot_rejection_times
+from utils import discounted_value_from_tau, tau_to_pmf_cdf
 
-# ============================================================
 # Configuration
-# ============================================================
+
 
 MU = 1.0 / 4.0
 SIGMA = 1.0
@@ -50,15 +30,10 @@ N_SIM_NULL = 100_000
 BATCH_SIZE = 25_000
 SEED = 0
 
-FIG_WIDTH = 6.2
-FIG_HEIGHT = 4.35
 DPI = 450
 
-EXACT_CDF_FIG_WIDTH = 6.2
-EXACT_CDF_FIG_HEIGHT = 3.4
 
 N_BINS_TOTAL = 15
-XTICK_EVERY = 2
 
 OUT_DIR = Path(".")
 OUT_STACKED_PNG = OUT_DIR / "gaussian_uncapped_gro_vs_approx_stacked.png"
@@ -66,12 +41,11 @@ OUT_STACKED_PDF = OUT_DIR / "gaussian_uncapped_gro_vs_approx_stacked.pdf"
 OUT_CSV = OUT_DIR / "gaussian_uncapped_gro_vs_approx_summary.csv"
 OUT_JSON = OUT_DIR / "gaussian_uncapped_gro_vs_approx_curves.json"
 
-
-# ============================================================
 # Plot style
-# ============================================================
+
 
 def configure_fonts() -> None:
+    """Set the fonts and sizes used in the paper plot."""
     plt.rcParams.update(
         {
             "font.family": "serif",
@@ -100,7 +74,6 @@ COL_BY_T = {
     60.0: "tab:green",
 }
 
-# CDF line styles for black-and-white readability.
 CDF_LS_GRO = "-"
 CDF_LS_BY_T = {
     8.0: "--",
@@ -108,57 +81,27 @@ CDF_LS_BY_T = {
     60.0: ":",
 }
 
-# Top panel: grouped histogram
-BAR_ALPHA = 0.18
-BAR_EDGE_BLEND = 0.50
-BAR_EDGE_LW = 0.85
-BAR_TOP_LW = 1.15
 
-BIN_EDGE_LW = 0.55
-BIN_SHADE_COLOR = "0.955"
-BIN_EDGE_COLOR = "0.82"
-
-OUTER_MARGIN_FRAC = 0.07
-INNER_GAP_FRAC = 0.040
-
-# Bottom panel: CDF
-CDF_LW = 1.45
-EXACT_CDF_LW = 1.6
-
-LEGEND_FONTSIZE = 8.2
-TICK_FONTSIZE = 8.5
-AXIS_LABEL_FONTSIZE = 10.2
-
-
-# ============================================================
 # Gaussian betting helpers
-# ============================================================
+
 
 def gaussian_kl(mu: float, sigma: float) -> float:
-    """KL(N(mu, sigma^2) || N(0, sigma^2))."""
+    """Return KL(N(mu, sigma squared) || N(0, sigma squared))."""
     return mu * mu / (2.0 * sigma * sigma)
 
 
 def gaussian_log_e(action_a: float, x: np.ndarray, sigma: float) -> np.ndarray:
-    """
-    Gaussian e-variable:
-        E_a(x) = exp(a x / sigma^2 - a^2 / (2 sigma^2)).
-    """
-    return action_a * x / (sigma * sigma) - (
-        action_a * action_a
-    ) / (2.0 * sigma * sigma)
+    """Return log payoffs for a Gaussian-shift bet."""
+    return action_a * x / (sigma * sigma) - (action_a * action_a) / (2.0 * sigma * sigma)
 
 
 def gaussian_gro_action(mu: float) -> float:
-    """GRO action for N(0, sigma^2) vs N(mu, sigma^2)."""
+    """Return the Gaussian growth-rate-optimal shift."""
     return float(mu)
 
 
 def gaussian_approx_action(mu: float, sigma: float, time_scale: float) -> float:
-    """
-    Exponential-reward stationary approximation:
-        a*(T) = mu + 2 sigma^2 / (mu T).
-    """
+    """Return the constant Gaussian EDO shift for the given time scale."""
     if time_scale <= 0.0:
         raise ValueError("time_scale must be positive.")
     if abs(mu) <= 1e-15:
@@ -167,33 +110,16 @@ def gaussian_approx_action(mu: float, sigma: float, time_scale: float) -> float:
 
 
 def gaussian_eta_star(mu: float, sigma: float, time_scale: float) -> float:
-    """
-    Gaussian closed form:
-        eta* = 2 sigma^2 / (mu^2 T + 2 sigma^2).
-    """
-    return float(
-        2.0 * sigma * sigma / (mu * mu * time_scale + 2.0 * sigma * sigma)
-    )
+    """Return the Gaussian EDO exponent in closed form."""
+    return float(2.0 * sigma * sigma / (mu * mu * time_scale + 2.0 * sigma * sigma))
 
 
 def fmt_t_value(time_scale: float) -> int | float:
+    """Display an integer time scale without a decimal point."""
     return int(time_scale) if float(time_scale).is_integer() else float(time_scale)
 
 
-# ============================================================
 # Simulation helpers
-# ============================================================
-
-def tau_to_pmf_cdf(tau: np.ndarray, horizon: int) -> tuple[np.ndarray, np.ndarray]:
-    pmf = np.bincount(tau, minlength=horizon + 2)[1 : horizon + 1] / tau.size
-    return pmf, np.cumsum(pmf)
-
-
-def discounted_value_from_tau(
-    tau: np.ndarray, time_scale: float, horizon: int
-) -> float:
-    hit = tau <= horizon
-    return float(np.mean(np.where(hit, np.exp(-tau / float(time_scale)), 0.0)))
 
 
 def first_hit_times_from_paths(
@@ -203,7 +129,7 @@ def first_hit_times_from_paths(
     horizon: int,
     u0: float,
 ) -> np.ndarray:
-    """Compute first hitting times for one constant action on pre-generated paths."""
+    """Find the first boundary crossing on each Gaussian observation path."""
     log_e = gaussian_log_e(action_a, x_paths[:, :horizon], sigma)
     cum_log_u = math.log(u0) + np.cumsum(log_e, axis=1)
 
@@ -225,16 +151,10 @@ def simulate_policies_common_random_numbers(
     seed: int,
     u0: float,
 ) -> dict[str, dict]:
-    """
-    Simulate all policies on common Gaussian paths.
-    This reduces visual Monte Carlo variation between curves.
-    """
+    """Compare strategies on the same simulated observation paths."""
     rng = np.random.default_rng(seed)
 
-    tau_by_policy = {
-        policy["name"]: np.empty(n_sim, dtype=np.int32)
-        for policy in policies
-    }
+    tau_by_policy = {policy["name"]: np.empty(n_sim, dtype=np.int32) for policy in policies}
 
     for start in range(0, n_sim, batch_size):
         end = min(start + batch_size, n_sim)
@@ -267,11 +187,11 @@ def simulate_policies_common_random_numbers(
     return results
 
 
-# ============================================================
 # Experiment
-# ============================================================
+
 
 def validate_config() -> None:
+    """Check that the experiment settings are valid."""
     if SIGMA <= 0.0:
         raise ValueError("SIGMA must be positive.")
     if not (0.0 < ALPHA < 1.0):
@@ -291,12 +211,11 @@ def validate_config() -> None:
 
     missing_linestyles = set(map(float, T_VALUES)) - set(CDF_LS_BY_T)
     if missing_linestyles:
-        raise ValueError(
-            f"Missing CDF line styles for T values: {sorted(missing_linestyles)}"
-        )
+        raise ValueError(f"Missing CDF line styles for T values: {sorted(missing_linestyles)}")
 
 
 def make_policies() -> list[dict]:
+    """Build the GRO and EDO strategies for the configured time scales."""
     policies = [
         {
             "name": "GRO",
@@ -324,6 +243,7 @@ def make_policies() -> list[dict]:
 
 
 def run_experiment() -> dict:
+    """Compute the strategies, rejection curves, and summary table."""
     validate_config()
 
     kl_10 = gaussian_kl(MU, SIGMA)
@@ -418,50 +338,25 @@ def run_experiment() -> dict:
     }
 
 
-# ============================================================
 # Plotting helpers
-# ============================================================
-
-def make_time_bins(plot_horizon: int, n_bins: int) -> tuple[np.ndarray, np.ndarray]:
-    bin_width = math.ceil(plot_horizon / n_bins)
-    lefts = np.arange(1, plot_horizon + 1, bin_width, dtype=int)
-    rights = np.minimum(lefts + bin_width, plot_horizon + 1)
-    return lefts, rights
-
-
-def aggregate_pmf_on_bins(
-    pmf: np.ndarray,
-    lefts: np.ndarray,
-    rights: np.ndarray,
-) -> np.ndarray:
-    return np.array(
-        [pmf[left - 1 : right - 1].sum() for left, right in zip(lefts, rights)],
-        dtype=float,
-    )
-
-
-def fade_color(color: str, blend: float = 0.50) -> tuple[float, float, float]:
-    """
-    Blend a color with white.
-    blend=0 gives the original color; blend=1 gives white.
-    """
-    rgb = np.array(to_rgb(color))
-    return tuple((1.0 - blend) * rgb + blend * np.ones(3))
 
 
 def curve_color(curve: dict) -> str:
+    """Return the plot color assigned to a strategy."""
     if curve["kind"] == "gro":
         return COL_GRO
     return COL_BY_T[float(curve["T"])]
 
 
 def curve_cdf_linestyle(curve: dict) -> str:
+    """Return the line style assigned to a strategy."""
     if curve["kind"] == "gro":
         return CDF_LS_GRO
     return CDF_LS_BY_T[float(curve["T"])]
 
 
 def ordered_curves_for_plot(curves: list[dict]) -> list[dict]:
+    """Order strategies consistently for the legend and plots."""
     ordered = [curve for curve in curves if curve["kind"] == "gro"]
     ordered += [
         next(
@@ -474,212 +369,27 @@ def ordered_curves_for_plot(curves: list[dict]) -> list[dict]:
     return ordered
 
 
-# ============================================================
-# Figure 1: stacked PMF-bin + CDF
-# ============================================================
-
-def plot_stacked_pmf_cdf(
-    curves: list[dict],
-    plot_max_t: int,
-    n_bins: int,
-    ymax_bin: float | None = None,
-):
-    plot_horizon = min(plot_max_t, HORIZON)
-    times = np.arange(1, plot_horizon + 1)
-    lefts, rights = make_time_bins(plot_horizon, n_bins)
-
-    ordered_curves = ordered_curves_for_plot(curves)
-
-    pmfs = [curve["pmf"][:plot_horizon] for curve in ordered_curves]
-    cdfs = [curve["cdf"][:plot_horizon] for curve in ordered_curves]
-    labels = [curve["label"] for curve in ordered_curves]
-    colors = [curve_color(curve) for curve in ordered_curves]
-    cdf_linestyles = [curve_cdf_linestyle(curve) for curve in ordered_curves]
-
-    pmf_bins = [aggregate_pmf_on_bins(pmf, lefts, rights) for pmf in pmfs]
-
-    if ymax_bin is None:
-        ymax_bin = max(0.11, 1.08 * max(float(np.max(p)) for p in pmf_bins))
-
-    fig, (ax1, ax2) = plt.subplots(
-        2,
-        1,
-        figsize=(FIG_WIDTH, FIG_HEIGHT),
-        sharex=False,
-        gridspec_kw={"height_ratios": [1.0, 1.0]},
+def plot_stacked_pmf_cdf(curves, plot_max_t, n_bins, ymax_bin=None):
+    """Draw this experiment’s rejection-time distributions in the shared layout."""
+    curves = ordered_curves_for_plot(curves)
+    colors = [curve_color(c) for c in curves]
+    linestyles = [curve_cdf_linestyle(c) for c in curves]
+    return plot_rejection_times(
+        curves,
+        colors,
+        linestyles,
+        min(plot_max_t, HORIZON),
+        n_bins,
+        style="gaussian",
+        ymax_bin=ymax_bin,
     )
 
-    # ========================================================
-    # Top panel: grouped coarse-binned PMF histogram
-    # ========================================================
-    for j, (left, right) in enumerate(zip(lefts, rights)):
-        if j % 2 == 0:
-            ax1.axvspan(left, right, color=BIN_SHADE_COLOR, zorder=0)
-        ax1.axvline(left, color=BIN_EDGE_COLOR, linewidth=BIN_EDGE_LW, zorder=1)
 
-    ax1.axvline(rights[-1], color=BIN_EDGE_COLOR, linewidth=BIN_EDGE_LW, zorder=1)
-
-    n_channels = len(ordered_curves)
-
-    for j, (left, right) in enumerate(zip(lefts, rights)):
-        width = right - left
-        usable_width = width * (1.0 - 2.0 * OUTER_MARGIN_FRAC)
-        gap = width * INNER_GAP_FRAC
-        bar_width = (usable_width - (n_channels - 1) * gap) / n_channels
-        x_start = left + width * OUTER_MARGIN_FRAC
-
-        for k, (pmf_bin, color, linestyle) in enumerate(
-            zip(pmf_bins, colors, cdf_linestyles)
-        ):
-            x0 = x_start + k * (bar_width + gap)
-            x_center = x0 + 0.5 * bar_width
-            y = pmf_bin[j]
-
-            edge_color = fade_color(color, blend=BAR_EDGE_BLEND)
-
-            ax1.bar(
-                x=x0,
-                height=y,
-                width=bar_width,
-                align="edge",
-                color=color,
-                alpha=BAR_ALPHA,
-                edgecolor=edge_color,
-                linewidth=BAR_EDGE_LW,
-                zorder=3,
-            )
-
-            ax1.hlines(
-                y,
-                x0,
-                x0 + bar_width,
-                color=color,
-                linewidth=BAR_TOP_LW,
-                zorder=4,
-            )
-
-            # Central vertical cue matching the CDF linestyle.
-            ax1.vlines(
-                x_center,
-                0.0,
-                y,
-                color=color,
-                linewidth=0.9,
-                linestyle=linestyle,
-                alpha=0.85,
-                zorder=4,
-            )
-
-    ax1.set_xlim(1, plot_horizon + 1)
-    ax1.set_ylim(0.0, ymax_bin)
-    ax1.grid(axis="y", alpha=0.18)
-
-    top_ticks = [0.0, 0.05, 0.10]
-    top_ticks = [tick for tick in top_ticks if tick <= ymax_bin + 1e-12]
-
-    ax1.set_yticks(top_ticks)
-    ax1.set_yticklabels(
-        [r"$0$" if tick == 0.0 else rf"${tick:.2f}$" for tick in top_ticks],
-        fontsize=TICK_FONTSIZE,
-    )
-    ax1.tick_params(axis="y", length=2.5, width=0.7, pad=1)
-
-    ax1.set_ylabel(
-        r"$\pi_1^{\otimes}(\tau \in \mathrm{bin})$",
-        fontsize=AXIS_LABEL_FONTSIZE,
-    )
-
-    handles = [
-        Line2D(
-            [0],
-            [0],
-            color=color,
-            lw=BAR_TOP_LW + 0.9,
-            linestyle=linestyle,
-            label=label,
-        )
-        for color, linestyle, label in zip(colors, cdf_linestyles, labels)
-    ]
-
-    ax1.legend(
-        handles=handles,
-        loc="upper right",
-        fontsize=LEGEND_FONTSIZE,
-        ncol=2,
-        frameon=True,
-        handlelength=2.2,
-        columnspacing=1.0,
-        borderpad=0.25,
-    )
-
-    # ========================================================
-    # Bottom panel: exact discrete-time CDF
-    # ========================================================
-    for cdf, color, linestyle in zip(cdfs, colors, cdf_linestyles):
-        ax2.step(
-            times,
-            cdf,
-            where="post",
-            color=color,
-            linewidth=CDF_LW,
-            linestyle=linestyle,
-        )
-
-    ax2.set_xlim(1, plot_horizon)
-    ax2.set_ylim(0.0, 1.0)
-    ax2.grid(axis="y", alpha=0.18)
-
-    ax2.set_yticks([0.0, 0.5, 1.0])
-    ax2.set_yticklabels([r"$0$", r"$0.5$", r"$1$"], fontsize=TICK_FONTSIZE)
-    ax2.tick_params(axis="y", length=2.5, width=0.7, pad=1)
-
-    ax2.set_ylabel(
-        r"$\pi_1^{\otimes}(\tau \leq t)$",
-        fontsize=AXIS_LABEL_FONTSIZE,
-    )
-
-    # ========================================================
-    # X-axes
-    # Top panel: bin tick labels only.
-    # Bottom panel: standard time ticks and sole x-label.
-    # ========================================================
-    centers = 0.5 * (lefts + rights - 1)
-    bin_tick_labels = [
-        rf"${left}\!-\!{right - 1}$" if (right - left) > 1 else rf"${left}$"
-        for left, right in zip(lefts, rights)
-    ]
-
-    ax1.set_xticks(centers[::XTICK_EVERY])
-    ax1.set_xticklabels(
-        bin_tick_labels[::XTICK_EVERY],
-        rotation=30,
-        ha="right",
-        fontsize=TICK_FONTSIZE,
-    )
-    ax1.tick_params(axis="x", length=2.5, width=0.7, pad=1)
-    ax1.set_xlabel("")
-
-    standard_ticks = np.arange(0, plot_horizon + 1, 20)
-    standard_ticks[0] = 1
-
-    ax2.set_xticks(standard_ticks)
-    ax2.set_xticklabels(
-        [rf"${int(t)}$" for t in standard_ticks],
-        fontsize=TICK_FONTSIZE,
-    )
-    ax2.tick_params(axis="x", length=2.5, width=0.7, pad=1)
-    ax2.set_xlabel(r"rejection time", fontsize=AXIS_LABEL_FONTSIZE)
-
-    fig.tight_layout(h_pad=0.45)
-    return fig
-
-
-
-# ============================================================
 # Saving
-# ============================================================
+
 
 def save_results(result: dict) -> None:
+    """Save the parameters and numerical results."""
     result["summary"].to_csv(OUT_CSV, index=False)
 
     serializable_curves = []
@@ -711,10 +421,7 @@ def save_results(result: dict) -> None:
                     "n_bins_total": N_BINS_TOTAL,
                     "cdf_line_styles": {
                         "GRO": CDF_LS_GRO,
-                        **{
-                            f"EDO T={fmt_t_value(t)}": CDF_LS_BY_T[float(t)]
-                            for t in T_VALUES
-                        },
+                        **{f"EDO T={fmt_t_value(t)}": CDF_LS_BY_T[float(t)] for t in T_VALUES},
                     },
                 },
                 "summary": result["summary"].to_dict(orient="records"),
@@ -725,11 +432,11 @@ def save_results(result: dict) -> None:
         )
 
 
-# ============================================================
 # Main
-# ============================================================
+
 
 def main() -> None:
+    """Run the experiment and save its outputs."""
     configure_fonts()
     plt.close("all")
 

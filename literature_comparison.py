@@ -1,352 +1,35 @@
+"""Figure 6: exact Bernoulli benchmarks and simulated horizon-aware baselines."""
+
 from __future__ import annotations
 
 import argparse
 import math
 import os
-from collections import defaultdict
-from math import comb
 from typing import Any
 
 import numpy as np
 
-
-# ============================================================
-# Basic Bernoulli helpers
-# ============================================================
-
-def binom_pmf_scalar(n: int, p: float, k: int) -> float:
-    if k < 0 or k > n:
-        return 0.0
-    return comb(n, k) * (p ** k) * ((1.0 - p) ** (n - k))
+from bernoulli import exact_constant_bernoulli_curve
+from bernoulli import exact_doob_curve as doob_curve
+from utils import aggregate_pmf_on_bins, fade_color, make_time_bins, tau_to_pmf_cdf
 
 
-def binom_tail_scalar(n: int, p: float, k: int) -> float:
-    if k <= 0:
-        return 1.0
-    if k > n:
-        return 0.0
-    return sum(binom_pmf_scalar(n, p, j) for j in range(k, n + 1))
+def exact_doob_curve(T, p0, p1, alpha, horizon=None):
+    """Return exact Doob probabilities for times 1 through the horizon."""
+    curve = doob_curve(T, p0, p1, alpha, T if horizon is None else horizon)
+    curve.update(label="Doob", kind="doob_exact", q_threshold=curve["conditional_prob_threshold"])
+    for key in ("pmf", "cdf"):
+        curve[key] = curve[key][1:]
+    return curve
 
 
 def sample_paths(horizon: int, p1: float, n_sim: int, seed: int) -> np.ndarray:
+    """Generate independent Bernoulli observation paths with a fixed seed."""
     rng = np.random.default_rng(seed)
     return rng.binomial(1, p1, size=(n_sim, horizon))
 
 
-def tau_to_pmf_cdf(tau: np.ndarray, horizon: int) -> tuple[np.ndarray, np.ndarray]:
-    """
-    tau = horizon + 1 means 'not rejected by horizon'.
-
-    Output arrays are indexed as [0..horizon-1], corresponding to times 1..horizon.
-    """
-    pmf = np.bincount(tau, minlength=horizon + 2)[1 : horizon + 1] / tau.size
-    return pmf, np.cumsum(pmf)
-
-
-# ============================================================
-# Deterministic NP event with lexicographic tie-break
-# ============================================================
-
-def choose_np_boundary(T: int, p0: float, alpha: float) -> dict[str, Any]:
-    """
-    Choose k such that
-
-        P0(S_T >= k) <= alpha < P0(S_T >= k - 1).
-
-    The deterministic NP event Gamma* contains:
-      - all strings with S_T >= k,
-      - plus the first r strings, in lexicographic order with 1 > 0,
-        among strings with S_T = k - 1.
-    """
-    if not (0.0 < p0 < 1.0):
-        raise ValueError("p0 must lie in (0,1).")
-    if not (0.0 < alpha < 1.0):
-        raise ValueError("alpha must lie in (0,1).")
-
-    k = next(k for k in range(T + 1) if binom_tail_scalar(T, p0, k) <= alpha)
-    m = k - 1
-    tail_above = binom_tail_scalar(T, p0, k)
-
-    if m < 0:
-        return {
-            "T": T,
-            "k": k,
-            "m": m,
-            "r": 0,
-            "tail_above": tail_above,
-            "atom0": 0.0,
-            "level": tail_above,
-            "c_star": None,
-        }
-
-    atom0 = (p0 ** m) * ((1.0 - p0) ** (T - m))
-    r = int(math.floor((alpha - tail_above) / atom0 + 1e-15))
-    r = max(0, min(r, comb(T, m)))
-    level = tail_above + r * atom0
-
-    c_star = unrank_fixed_weight_desc(T, m, r) if r > 0 else None
-
-    return {
-        "T": T,
-        "k": k,
-        "m": m,
-        "r": r,
-        "tail_above": tail_above,
-        "atom0": atom0,
-        "level": level,
-        "c_star": c_star,
-    }
-
-
-def unrank_fixed_weight_desc(T: int, m: int, r: int) -> str:
-    """
-    r-th string, 1-indexed, among length-T binary strings with exactly m ones,
-    ordered lexicographically with 1 > 0.
-    """
-    if not (1 <= r <= comb(T, m)):
-        raise ValueError(f"r={r} must lie in [1, C({T},{m})].")
-
-    bits: list[str] = []
-    ones_left = m
-
-    for pos in range(T):
-        rem = T - pos
-        count_if_one = comb(rem - 1, ones_left - 1) if ones_left > 0 else 0
-
-        if r <= count_if_one:
-            bits.append("1")
-            ones_left -= 1
-        else:
-            bits.append("0")
-            r -= count_if_one
-
-    return "".join(bits)
-
-
-def update_cmp(cmp_state: int, bit: int, cbit: int) -> int:
-    """
-    Comparison of current prefix with the c_star prefix under lex order 1 > 0.
-
-        -1: prefix < c_star prefix
-         0: prefix = c_star prefix
-        +1: prefix > c_star prefix
-    """
-    if cmp_state != 0:
-        return cmp_state
-    if bit > cbit:
-        return 1
-    if bit < cbit:
-        return -1
-    return 0
-
-
-# ============================================================
-# Exact Doob curve with the exact Proposition 2 threshold
-# ============================================================
-
-_CMP_STATES = (-1, 0, 1)
-_CMP_TO_INDEX = {-1: 0, 0: 1, 1: 2}
-_INDEX_TO_CMP = {0: -1, 1: 0, 2: 1}
-
-
-def build_conditional_np_prob_table(
-    T: int,
-    p0: float,
-    boundary: dict[str, Any],
-) -> np.ndarray:
-    """
-    Backward dynamic program for
-
-        q[t, s, cmp] = P0(Gamma* | current prefix state after t steps),
-
-    where:
-      - t = current time,
-      - s = number of ones seen so far,
-      - cmp compares the current prefix to c_star's prefix under lex order 1 > 0.
-
-    This is the exact conditional probability needed for the Doob martingale:
-
-        U_t^* = P0(Gamma* | X^t) / P0(Gamma*).
-    """
-    k = boundary["k"]
-    m = boundary["m"]
-    c_star = boundary["c_star"]
-
-    q = np.zeros((T + 1, T + 1, 3), dtype=float)
-
-    # Terminal time t = T.
-    for s in range(T + 1):
-        for idx in range(3):
-            cmp_state = _INDEX_TO_CMP[idx]
-
-            if s >= k:
-                q[T, s, idx] = 1.0
-            elif c_star is not None and s == m and cmp_state >= 0:
-                # On the tied boundary S_T = m, include the lexicographically
-                # first r strings, i.e. those >= c_star under 1 > 0 ordering.
-                q[T, s, idx] = 1.0
-            else:
-                q[T, s, idx] = 0.0
-
-    # Backward induction.
-    for t in range(T - 1, -1, -1):
-        cbit = int(c_star[t]) if c_star is not None else 0
-
-        for s in range(t + 1):
-            for idx in range(3):
-                cmp_state = _INDEX_TO_CMP[idx]
-
-                if c_star is None:
-                    cmp0 = 0
-                    cmp1 = 0
-                else:
-                    cmp0 = update_cmp(cmp_state, 0, cbit)
-                    cmp1 = update_cmp(cmp_state, 1, cbit)
-
-                q0 = q[t + 1, s, _CMP_TO_INDEX[cmp0]]
-                q1 = q[t + 1, s + 1, _CMP_TO_INDEX[cmp1]]
-
-                q[t, s, idx] = (1.0 - p0) * q0 + p0 * q1
-
-    return q
-
-
-def exact_doob_curve(
-    T: int,
-    p0: float,
-    p1: float,
-    alpha: float,
-    horizon: int | None = None,
-) -> dict[str, Any]:
-    """
-    Exact CDF of the stopping time of the Doob martingale associated with the
-    deterministic NP event Gamma*.
-
-    This implements the exact Proposition 2 crossing rule:
-
-        stop when U_t^* >= alpha^{-1},
-
-    i.e.
-
-        P0(Gamma* | X^t) >= P0(Gamma*) / alpha,
-
-    not merely when the prefix forces rejection.
-    """
-    if horizon is None:
-        horizon = T
-    if horizon < T:
-        raise ValueError("horizon must be at least T.")
-    if not (0.0 < p0 < p1 < 1.0):
-        raise ValueError("This script assumes 0 < p0 < p1 < 1.")
-
-    boundary = choose_np_boundary(T, p0, alpha)
-    level = boundary["level"]
-    c_star = boundary["c_star"]
-    q = build_conditional_np_prob_table(T, p0, boundary)
-
-    # Stop when U_t = q_t / level >= 1 / alpha, i.e. q_t >= level / alpha.
-    q_threshold = level / alpha if level > 0.0 else np.inf
-
-    alive: dict[tuple[int, int], float] = {(0, 0): 1.0}
-    pmf_full = np.zeros(horizon + 1, dtype=float)
-
-    for t in range(1, T + 1):
-        new_alive: defaultdict[tuple[int, int], float] = defaultdict(float)
-        cbit = int(c_star[t - 1]) if c_star is not None else 0
-
-        for (s, cmp_state), mass in alive.items():
-            for bit, prob in ((0, 1.0 - p1), (1, p1)):
-                s_new = s + bit
-                cmp_new = (
-                    update_cmp(cmp_state, bit, cbit)
-                    if c_star is not None
-                    else 0
-                )
-                mass_new = mass * prob
-
-                q_now = q[t, s_new, _CMP_TO_INDEX[cmp_new]]
-                if q_now >= q_threshold - 1e-14:
-                    pmf_full[t] += mass_new
-                else:
-                    new_alive[(s_new, cmp_new)] += mass_new
-
-        alive = dict(new_alive)
-
-    cdf_full = np.cumsum(pmf_full)
-
-    if T < horizon:
-        cdf_full[T + 1 :] = cdf_full[T]
-
-    return {
-        **boundary,
-        "label": "Doob",
-        "kind": "doob_exact",
-        "pmf": pmf_full[1 : horizon + 1],
-        "cdf": cdf_full[1 : horizon + 1],
-        "power": float(cdf_full[T]),
-        "q_threshold": float(q_threshold),
-    }
-
-
-# ============================================================
 # Exact constant Bernoulli betting curves: GRO and EDO
-# ============================================================
-
-def exact_constant_bernoulli_curve(
-    p0: float,
-    p1: float,
-    alpha: float,
-    horizon: int,
-    p_action: float,
-    label: str,
-    kind: str,
-) -> dict[str, Any]:
-    """
-    Exact CDF for the constant Bernoulli betting action Bern(p_action).
-
-    The one-step e-variable is
-
-        E(1) = p_action / p0,
-        E(0) = (1 - p_action) / (1 - p0).
-
-    This is uncapped: no boundary-aware correction is applied.
-    """
-    if not (0.0 < p_action < 1.0):
-        raise ValueError("p_action must lie in (0,1).")
-
-    log_threshold = math.log(1.0 / alpha)
-    log_e1 = math.log(p_action / p0)
-    log_e0 = math.log((1.0 - p_action) / (1.0 - p0))
-
-    alive: dict[int, float] = {0: 1.0}
-    pmf_full = np.zeros(horizon + 1, dtype=float)
-
-    for t in range(1, horizon + 1):
-        new_alive: defaultdict[int, float] = defaultdict(float)
-
-        for s, mass in alive.items():
-            for bit, prob in ((0, 1.0 - p1), (1, p1)):
-                s_new = s + bit
-                logw = s_new * log_e1 + (t - s_new) * log_e0
-                mass_new = mass * prob
-
-                if logw >= log_threshold - 1e-14:
-                    pmf_full[t] += mass_new
-                else:
-                    new_alive[s_new] += mass_new
-
-        alive = dict(new_alive)
-
-    cdf_full = np.cumsum(pmf_full)
-
-    return {
-        "label": label,
-        "kind": kind,
-        "pmf": pmf_full[1 : horizon + 1],
-        "cdf": cdf_full[1 : horizon + 1],
-        "power": float(cdf_full[horizon]),
-        "p_action": float(p_action),
-    }
 
 
 def exact_gro_curve(
@@ -355,11 +38,7 @@ def exact_gro_curve(
     alpha: float,
     horizon: int,
 ) -> dict[str, Any]:
-    """
-    Exact CDF of the GRO constant betting rule.
-
-    For simple Bernoulli-vs-Bernoulli, GRO plays Bern(p1).
-    """
+    """Compute exact rejection probabilities for the likelihood-ratio strategy."""
     return exact_constant_bernoulli_curve(
         p0=p0,
         p1=p1,
@@ -376,19 +55,7 @@ def bernoulli_edo_growth(
     p0: float,
     p1: float,
 ) -> float:
-    """
-    Computes
-
-        G(eta) = log sup_q E_{p1}[(d q / d p0)^eta]
-
-    for Bernoulli simple-vs-simple testing.
-
-    With xi = 1 / (1 - eta),
-
-        G(eta) = (1 - eta) log E_{p0}[L^xi],
-
-    where L = d Bern(p1) / d Bern(p0).
-    """
+    """Return the optimized log moment defining the EDO exponent."""
     if not (0.0 <= eta < 1.0):
         raise ValueError("eta must lie in [0,1).")
 
@@ -415,14 +82,7 @@ def solve_bernoulli_edo_eta(
     tol: float = 1e-12,
     max_iter: int = 200,
 ) -> float:
-    """
-    Solve G(eta) = 1 / T_scale for eta in (0,1).
-
-    For p1 > p0, the upper endpoint of G is log(p1 / p0), so a solution
-    exists when
-
-        1 / T_scale < log(p1 / p0).
-    """
+    """Find the Bernoulli EDO exponent by bisection."""
     if T_scale <= 0:
         raise ValueError("T_scale must be positive.")
     if not (0.0 < p0 < p1 < 1.0):
@@ -460,13 +120,7 @@ def bernoulli_edo_p_star(
     p0: float,
     p1: float,
 ) -> float:
-    """
-    Compute the EDO tilted Bernoulli parameter p_star.
-
-    The tilted law is
-
-        d pi_star / d pi0 proportional to (d pi1 / d pi0)^{1/(1 - eta)}.
-    """
+    """Return the Bernoulli parameter of the tilted EDO bet."""
     if not (0.0 <= eta < 1.0):
         raise ValueError("eta must lie in [0,1).")
 
@@ -489,12 +143,7 @@ def exact_edo_uncapped_curve(
     horizon: int,
     T_scale: float | None = None,
 ) -> dict[str, Any]:
-    """
-    Exact CDF for uncapped Bernoulli EDO.
-
-    Here T_scale is the exponential-decay time scale. For this comparison,
-    we set T_scale = horizon, i.e. the same numerical T as the hard deadline.
-    """
+    """Compute exact rejection probabilities for the uncapped EDO strategy."""
     if T_scale is None:
         T_scale = float(horizon)
 
@@ -527,11 +176,11 @@ def exact_edo_uncapped_curve(
     return curve
 
 
-# ============================================================
 # STaR-Bets and Taga baselines
-# ============================================================
+
 
 def safe_lambda_max(p0: float, eps: float = 1e-3) -> float:
+    """Return the largest stake allowed by the endpoint safety margin."""
     return (1.0 - eps) / p0
 
 
@@ -541,6 +190,7 @@ def taga_empirical_kelly_lambda(
     p0: float,
     eps: float = 1e-3,
 ) -> np.ndarray:
+    """Estimate the Kelly stake from past scores and squared scores."""
     lam = np.divide(
         score_sum,
         second_moment_sum,
@@ -561,6 +211,7 @@ def simulate_starbets_cdf(
     safe_eps: float = 1e-3,
     second_moment_clip: str = "paper",
 ) -> dict[str, Any]:
+    """Simulate the target-recalculating STaR-Bets rule on Bernoulli paths."""
     x = sample_paths(horizon, p1, n_sim, seed)
 
     log_threshold = math.log(1.0 / alpha)
@@ -575,10 +226,7 @@ def simulate_starbets_cdf(
             break
 
         denom = max(t - 1, 1)
-        variance_proxy = (
-            second_moment_sum[idx] / denom
-            + c * p0 * horizon / float(denom * denom)
-        )
+        variance_proxy = second_moment_sum[idx] / denom + c * p0 * horizon / float(denom * denom)
 
         if second_moment_clip == "paper":
             clip_upper = p0 * (1.0 - p0)
@@ -614,6 +262,7 @@ def simulate_starbets_cdf(
 
 
 def epsilon_schedule(t: int, horizon: int, onset: float, trend: str) -> float:
+    """Return the probability of an aggressive bet at the current time."""
     start = onset * horizon
     if t < start:
         return 0.0
@@ -646,6 +295,7 @@ def simulate_taga_hedged_epsilon_cdf(
         (0.75, "quadratic"),
     ),
 ) -> dict[str, Any]:
+    """Simulate the Taga-inspired mixture of six randomized betting schedules."""
     rng = np.random.default_rng(seed)
     x = rng.binomial(1, p1, size=(n_sim, horizon))
 
@@ -698,11 +348,11 @@ def simulate_taga_hedged_epsilon_cdf(
     }
 
 
-# ============================================================
 # Build curves
-# ============================================================
+
 
 def build_curves_for_horizon(args: argparse.Namespace, horizon: int) -> list[dict[str, Any]]:
+    """Compute all five comparison strategies for one deadline."""
     curves: list[dict[str, Any]] = []
 
     curves.append(
@@ -763,11 +413,11 @@ def build_curves_for_horizon(args: argparse.Namespace, horizon: int) -> list[dic
     return curves
 
 
-# ============================================================
 # Plotting helpers
-# ============================================================
+
 
 def configure_matplotlib(paper_style: bool = True) -> None:
+    """Use a headless plotting backend and optionally apply paper styling."""
     os.environ.setdefault("MPLCONFIGDIR", "/tmp/mpl-hard-deadline-stacked")
 
     import matplotlib
@@ -781,7 +431,12 @@ def configure_matplotlib(paper_style: bool = True) -> None:
         plt.rcParams.update(
             {
                 "font.family": "serif",
-                "font.serif": ["Times New Roman", "Times", "Nimbus Roman", "STIXGeneral"],
+                "font.serif": [
+                    "Times New Roman",
+                    "Times",
+                    "Nimbus Roman",
+                    "STIXGeneral",
+                ],
                 "mathtext.fontset": "stix",
                 "mathtext.rm": "STIXGeneral",
                 "mathtext.it": "STIXGeneral:italic",
@@ -798,34 +453,8 @@ def configure_matplotlib(paper_style: bool = True) -> None:
         )
 
 
-def make_time_bins(plot_horizon: int, n_bins: int) -> tuple[np.ndarray, np.ndarray]:
-    bin_width = math.ceil(plot_horizon / n_bins)
-    lefts = np.arange(1, plot_horizon + 1, bin_width, dtype=int)
-    rights = np.minimum(lefts + bin_width, plot_horizon + 1)
-    return lefts, rights
-
-
-def aggregate_pmf_on_bins(
-    pmf: np.ndarray,
-    lefts: np.ndarray,
-    rights: np.ndarray,
-) -> np.ndarray:
-    # pmf[idx] corresponds to time idx + 1.
-    # bin [left, right - 1] corresponds to pmf[left - 1 : right - 1].
-    return np.array(
-        [pmf[left - 1 : right - 1].sum() for left, right in zip(lefts, rights)],
-        dtype=float,
-    )
-
-
-def fade_color(color: str, blend: float) -> tuple[float, float, float]:
-    from matplotlib.colors import to_rgb
-
-    rgb = np.array(to_rgb(color))
-    return tuple((1.0 - blend) * rgb + blend * np.ones(3))
-
-
 def style_for_kind(kind: str) -> dict[str, Any]:
+    """Return the color and line style for a comparison strategy."""
     if kind == "doob_exact":
         return {"color": "black", "ls": "-", "lw": 2.3}
     if kind == "gro_exact":
@@ -840,6 +469,7 @@ def style_for_kind(kind: str) -> dict[str, Any]:
 
 
 def ordered_curves(curves: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Order comparison strategies consistently across panels."""
     order = ["doob_exact", "gro_exact", "edo_exact", "starbets_mc", "taga_hedged_mc"]
     return [next(curve for curve in curves if curve["kind"] == kind) for kind in order]
 
@@ -852,6 +482,7 @@ def plot_one_panel(
     n_bins_total: int,
     ymax_top: float | None = None,
 ) -> tuple[list[Any], list[str]]:
+    """Draw one deadline’s binned rejection probabilities and CDFs."""
     curves = ordered_curves(curves)
     times = np.arange(1, horizon + 1)
     lefts, rights = make_time_bins(horizon, n_bins_total)
@@ -1003,6 +634,7 @@ def plot_one_panel(
 
 
 def plot_cdfs_multi_horizon(args: argparse.Namespace) -> list[dict[str, Any]]:
+    """Save side-by-side comparisons for all requested deadlines."""
     configure_matplotlib(paper_style=args.paper_style)
 
     import matplotlib.pyplot as plt
@@ -1075,11 +707,7 @@ def plot_cdfs_multi_horizon(args: argparse.Namespace) -> list[dict[str, Any]]:
 
 
 def display_plot_if_possible(path: str) -> None:
-    """
-    Display the saved plot at the end of a notebook/IPython run.
-
-    In a plain terminal, this silently does nothing.
-    """
+    """Display a saved figure when running in an IPython notebook."""
     try:
         from IPython import get_ipython
 
@@ -1089,15 +717,15 @@ def display_plot_if_possible(path: str) -> None:
         from IPython.display import Image, display
 
         display(Image(filename=path))
-    except Exception as exc:
+    except (ImportError, OSError) as exc:
         print(f"[display skipped] Could not display {path}: {exc}")
 
 
-# ============================================================
 # CLI
-# ============================================================
+
 
 def parse_args() -> argparse.Namespace:
+    """Read experiment and output options from the command line."""
     parser = argparse.ArgumentParser(
         description=(
             "Plot stacked PMF-bin / CDF panels for Bernoulli hard-deadline tests, "
@@ -1174,15 +802,14 @@ def parse_args() -> argparse.Namespace:
         help="Display the saved figure at the end when running in notebook/IPython.",
     )
 
-    args, _unknown = parser.parse_known_args()
-    return args
+    return parser.parse_args()
 
 
-# ============================================================
 # Main
-# ============================================================
+
 
 def main() -> None:
+    """Run the experiment and save its outputs."""
     args = parse_args()
     summaries = plot_cdfs_multi_horizon(args)
 

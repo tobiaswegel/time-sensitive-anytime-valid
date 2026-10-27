@@ -1,31 +1,4 @@
-"""
-Bernoulli EDO vs EDO capped vs Bellman.
-
-Model:
-    pi_0 = Bernoulli(1/2)
-    pi_1 = Bernoulli(2/3)
-
-Reward:
-    R(t) = exp(-t / T), with T = 30.
-
-Strategies:
-    EDO:
-        constant exponential-decay approximation q*(T)
-
-    EDO capped:
-        same q*(T), but with action-level overshoot capping
-
-    Bellman:
-        finite-horizon backward induction over rescaled wealth u = alpha W,
-        with action-level overshoot capping
-
-Output:
-    - stacked PMF-bin/CDF figure
-    - summary CSV
-    - curves JSON
-
-Uses common random numbers for cleaner curve comparisons.
-"""
+"""Figure 3: Bernoulli EDO, capped EDO, and the numerical Bellman policy."""
 
 from __future__ import annotations
 
@@ -37,13 +10,15 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.colors import to_rgb
-from matplotlib.lines import Line2D
 
+from plotting import plot_rejection_times
+from utils import (
+    discounted_value_from_tau,
+    tau_to_pmf_cdf,
+)
 
-# ============================================================
 # Configuration
-# ============================================================
+
 
 P0 = 1.0 / 2.0
 P1 = 2.0 / 3.0
@@ -65,12 +40,9 @@ N_SIM_NULL = 100_000
 BATCH_SIZE = 50_000
 SEED = 0
 
-FIG_WIDTH = 6.2
-FIG_HEIGHT = 4.35
 DPI = 450
 
 N_BINS_TOTAL = 15
-XTICK_EVERY = 2
 
 OUT_DIR = Path(".")
 OUT_FIG_PNG = OUT_DIR / "bernoulli_edo_bellman_stacked_colorblind.png"
@@ -78,12 +50,11 @@ OUT_FIG_PDF = OUT_DIR / "bernoulli_edo_bellman_stacked_colorblind.pdf"
 OUT_CSV = OUT_DIR / "bernoulli_edo_bellman_colorblind_summary.csv"
 OUT_JSON = OUT_DIR / "bernoulli_edo_bellman_colorblind_curves.json"
 
-
-# ============================================================
 # Plot style
-# ============================================================
+
 
 def configure_fonts() -> None:
+    """Set the fonts and sizes used in the paper plot."""
     plt.rcParams.update(
         {
             "figure.dpi": DPI,
@@ -115,48 +86,31 @@ CDF_LS_BELLMAN = "-"
 CDF_LS_EDO = "--"
 CDF_LS_EDO_CAP = ":"
 
-# Top panel: grouped histogram
-BAR_FACE_BLEND = 0.82
-BAR_EDGE_BLEND = 0.50
-BAR_EDGE_LW = 0.85
-BAR_TOP_LW = 1.15
 
-BIN_EDGE_LW = 0.55
-BIN_SHADE_COLOR = "0.955"
-BIN_EDGE_COLOR = "0.82"
-
-OUTER_MARGIN_FRAC = 0.07
-INNER_GAP_FRAC = 0.040
-
-# Bottom panel: CDF
-CDF_LW = 1.45
-
-LEGEND_FONTSIZE = 8.2
-TICK_FONTSIZE = 8.5
-AXIS_LABEL_FONTSIZE = 10.2
-
-
-# ============================================================
 # Bernoulli math helpers
-# ============================================================
+
 
 def check_probability(p: float, name: str) -> None:
+    """Check that a probability is strictly between zero and one."""
     if not (0.0 < float(p) < 1.0):
         raise ValueError(f"{name} must lie in (0, 1).")
 
 
 def bernoulli_kl(p: float, q: float) -> float:
+    """Return the KL divergence between two Bernoulli distributions."""
     check_probability(p, "p")
     check_probability(q, "q")
     return p * math.log(p / q) + (1.0 - p) * math.log((1.0 - p) / (1.0 - q))
 
 
 def logit(p: float) -> float:
+    """Convert a probability to log odds."""
     check_probability(p, "p")
     return math.log(p / (1.0 - p))
 
 
 def expit(x: float) -> float:
+    """Convert log odds to a probability without overflowing."""
     if x >= 0:
         z = math.exp(-x)
         return 1.0 / (1.0 + z)
@@ -165,12 +119,7 @@ def expit(x: float) -> float:
 
 
 def eta_renyi_product(eta: float, p0: float, p1: float) -> float:
-    """
-    Computes eta * D_{1/(1-eta)}(Bern(p1) || Bern(p0)).
-
-    Stable form:
-        (1 - eta) log E_{p0}[(d p1 / d p0)^{1/(1-eta)}].
-    """
+    """Return eta times the Bernoulli Renyi divergence of order 1/(1-eta)."""
     if eta < 0.0 or eta >= 1.0:
         raise ValueError("eta must lie in [0, 1).")
     if eta == 0.0:
@@ -195,7 +144,7 @@ def solve_eta_star(
     tol: float = 1e-12,
     max_iter: int = 250,
 ) -> float:
-    """Solve eta * D_{1/(1-eta)}(Bern(p1) || Bern(p0)) = 1 / T."""
+    """Find the EDO exponent by bisection for the given time scale."""
     if time_scale <= 0.0:
         raise ValueError("time_scale must be positive.")
 
@@ -203,9 +152,7 @@ def solve_eta_star(
     endpoint = math.log(max(p1 / p0, (1.0 - p1) / (1.0 - p0)))
 
     if target >= endpoint:
-        raise ValueError(
-            f"No finite eta_star exists: 1/T={target:.6g}, endpoint={endpoint:.6g}."
-        )
+        raise ValueError(f"No finite eta_star exists: 1/T={target:.6g}, endpoint={endpoint:.6g}.")
 
     lo = 0.0
     hi = 1.0 - 1e-14
@@ -226,7 +173,7 @@ def solve_eta_star(
 
 
 def bernoulli_constant_approximation(p0: float, p1: float, time_scale: float) -> dict[str, float]:
-    """Constant exponential-reward approximation: the L_eta tilt of p0."""
+    """Return the EDO exponent and constant Bernoulli action."""
     eta_star = solve_eta_star(p0, p1, time_scale)
     q_star_logit = (logit(p1) - eta_star * logit(p0)) / (1.0 - eta_star)
     q_star = expit(q_star_logit)
@@ -240,6 +187,7 @@ def bernoulli_constant_approximation(p0: float, p1: float, time_scale: float) ->
 
 
 def bernoulli_log_e(q: np.ndarray | float, x: np.ndarray, p0: float) -> np.ndarray:
+    """Return log bet payoffs for binary observations."""
     q = np.asarray(q, dtype=float)
     x = np.asarray(x, dtype=int)
     return np.where(x == 1, np.log(q / p0), np.log((1.0 - q) / (1.0 - p0)))
@@ -251,12 +199,7 @@ def cap_bernoulli_action(
     p0: float,
     eps: float = 1e-12,
 ) -> np.ndarray:
-    """
-    Action-level overshoot cap.
-
-    If q > p0, cap q downward so that u * q/p0 <= 1.
-    If q < p0, cap q upward so that u * (1-q)/(1-p0) <= 1.
-    """
+    """Adjust the bet to reach the boundary without overshooting either outcome."""
     q_arr = np.asarray(q, dtype=float)
     u_arr = np.asarray(u, dtype=float)
 
@@ -277,11 +220,11 @@ def cap_bernoulli_action(
     return np.clip(capped, eps, 1.0 - eps)
 
 
-# ============================================================
 # Bellman solver
-# ============================================================
+
 
 def make_wealth_grid(n_wealth: int, min_u: float) -> np.ndarray:
+    """Create a logarithmic grid of rescaled wealth, ending at one."""
     if n_wealth < 2:
         raise ValueError("n_wealth must be at least 2.")
     if not (0.0 < min_u < 1.0):
@@ -298,6 +241,7 @@ def precompute_action_matrices(
     n_actions: int,
     action_cap: bool = True,
 ) -> dict[str, np.ndarray]:
+    """Compute next wealth and boundary crossings for each action and state."""
     q_raw = np.linspace(1e-12, 1.0 - 1e-12, n_actions)
     u_states = u_grid[:-1]
 
@@ -329,15 +273,7 @@ def solve_bernoulli_bellman(
     u0: float,
     action_cap: bool = True,
 ) -> dict[str, Any]:
-    """
-    Finite-horizon backward induction for reward exp(-tau/T).
-
-    State:
-        u = alpha * W in (0, 1].
-
-    Boundary:
-        u = 1 means rejection has already happened.
-    """
+    """Find the finite-horizon policy maximizing expected exponential reward."""
     u_grid = make_wealth_grid(n_wealth, min_u)
 
     mats = precompute_action_matrices(
@@ -395,18 +331,7 @@ def solve_bernoulli_bellman(
     }
 
 
-# ============================================================
 # Simulation helpers
-# ============================================================
-
-def tau_to_pmf_cdf(tau: np.ndarray, horizon: int) -> tuple[np.ndarray, np.ndarray]:
-    pmf = np.bincount(tau, minlength=horizon + 2)[1 : horizon + 1] / tau.size
-    return pmf, np.cumsum(pmf)
-
-
-def discounted_value_from_tau(tau: np.ndarray, time_scale: float, horizon: int) -> float:
-    hit = tau <= horizon
-    return float(np.mean(np.where(hit, np.exp(-tau / float(time_scale)), 0.0)))
 
 
 def simulate_constant_from_paths(
@@ -417,6 +342,7 @@ def simulate_constant_from_paths(
     u0: float,
     action_cap: bool,
 ) -> np.ndarray:
+    """Find rejection times for a constant bet, optionally capped at the boundary."""
     n_sim = x_paths.shape[0]
 
     log_u = np.full(n_sim, math.log(u0), dtype=float)
@@ -455,6 +381,7 @@ def simulate_bellman_from_paths(
     u0: float,
     action_cap: bool = True,
 ) -> np.ndarray:
+    """Find rejection times using the interpolated Bellman policy."""
     p0 = bellman_result["p0"]
     u_grid = bellman_result["u_grid"]
     policy_q = bellman_result["policy_q"]
@@ -500,7 +427,7 @@ def simulate_policies_common_random_numbers(
     seed: int,
     u0: float,
 ) -> dict[str, dict[str, Any]]:
-    """Simulate all policies on common Bernoulli paths."""
+    """Compare strategies on the same simulated observation paths."""
     rng = np.random.default_rng(seed)
 
     policy_names = ["EDO", "EDO capped", "Bellman"]
@@ -545,11 +472,11 @@ def simulate_policies_common_random_numbers(
     return results
 
 
-# ============================================================
 # Experiment
-# ============================================================
+
 
 def validate_config() -> None:
+    """Check that the experiment settings are valid."""
     check_probability(P0, "P0")
     check_probability(P1, "P1")
 
@@ -580,6 +507,7 @@ def make_curve(
     eta_star: float | None,
     bellman_value_t0: float | None = None,
 ) -> dict[str, Any]:
+    """Collect one strategy’s parameters and rejection probabilities."""
     curve = {
         "name": name,
         "kind": kind,
@@ -599,6 +527,7 @@ def make_curve(
 
 
 def run_experiment() -> dict[str, Any]:
+    """Compute the strategies, rejection curves, and summary table."""
     validate_config()
 
     kl_10 = bernoulli_kl(P1, P0)
@@ -708,9 +637,7 @@ def run_experiment() -> dict[str, Any]:
                     TIME_SCALE,
                     HORIZON,
                 ),
-                "mean_tau_truncated_under_pi1": float(
-                    np.mean(np.minimum(alt["tau"], HORIZON + 1))
-                ),
+                "mean_tau_truncated_under_pi1": float(np.mean(np.minimum(alt["tau"], HORIZON + 1))),
             }
         )
 
@@ -724,46 +651,11 @@ def run_experiment() -> dict[str, Any]:
     }
 
 
-# ============================================================
 # Plotting
-# ============================================================
-
-def make_time_bins(plot_horizon: int, n_bins: int) -> tuple[np.ndarray, np.ndarray]:
-    bin_width = math.ceil(plot_horizon / n_bins)
-    lefts = np.arange(1, plot_horizon + 1, bin_width, dtype=int)
-    rights = np.minimum(lefts + bin_width, plot_horizon + 1)
-    return lefts, rights
-
-
-def aggregate_pmf_on_bins(
-    pmf: np.ndarray,
-    lefts: np.ndarray,
-    rights: np.ndarray,
-) -> np.ndarray:
-    return np.array(
-        [pmf[left - 1 : right - 1].sum() for left, right in zip(lefts, rights)],
-        dtype=float,
-    )
-
-
-def fade_color(color: str, blend: float = 0.50) -> tuple[float, float, float]:
-    """
-    Blend a color with white.
-    blend=0 gives the original color; blend=1 gives white.
-    """
-    rgb = np.array(to_rgb(color))
-    return tuple((1.0 - blend) * rgb + blend * np.ones(3))
-
-
-def tick_label_decimal(value: float) -> str:
-    """Format tick labels as 0, 0.1, 0.2, etc., without trailing zeros."""
-    if abs(value) < 1e-12:
-        return r"$0$"
-    text = f"{value:.2f}".rstrip("0").rstrip(".")
-    return rf"${text}$"
 
 
 def curve_color(curve: dict[str, Any]) -> str:
+    """Return the plot color assigned to a strategy."""
     if curve["kind"] == "bellman":
         return COL_BELLMAN
     if curve["kind"] == "edo":
@@ -774,6 +666,7 @@ def curve_color(curve: dict[str, Any]) -> str:
 
 
 def curve_cdf_linestyle(curve: dict[str, Any]) -> str:
+    """Return the line style assigned to a strategy."""
     if curve["kind"] == "bellman":
         return CDF_LS_BELLMAN
     if curve["kind"] == "edo":
@@ -784,212 +677,32 @@ def curve_cdf_linestyle(curve: dict[str, Any]) -> str:
 
 
 def ordered_curves_for_plot(curves: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Order strategies consistently for the legend and plots."""
     order = ["bellman", "edo", "edo_capped"]
     return [next(curve for curve in curves if curve["kind"] == kind) for kind in order]
 
 
-def plot_stacked_pmf_cdf(
-    curves: list[dict[str, Any]],
-    plot_max_t: int,
-    n_bins: int,
-    ymax_bin: float | None = None,
-):
-    plot_horizon = min(plot_max_t, HORIZON)
-    times = np.arange(1, plot_horizon + 1)
-    lefts, rights = make_time_bins(plot_horizon, n_bins)
-
-    ordered_curves = ordered_curves_for_plot(curves)
-
-    pmfs = [curve["pmf"][:plot_horizon] for curve in ordered_curves]
-    cdfs = [curve["cdf"][:plot_horizon] for curve in ordered_curves]
-    labels = [curve["label"] for curve in ordered_curves]
-    colors = [curve_color(curve) for curve in ordered_curves]
-    cdf_linestyles = [curve_cdf_linestyle(curve) for curve in ordered_curves]
-
-    pmf_bins = [aggregate_pmf_on_bins(pmf, lefts, rights) for pmf in pmfs]
-
-    if ymax_bin is None:
-        data_max = max(float(np.max(p)) for p in pmf_bins)
-        ymax_bin = max(0.20, 1.08 * data_max)
-        ymax_bin = math.ceil(10.0 * ymax_bin) / 10.0
-
-    fig, (ax1, ax2) = plt.subplots(
-        2,
-        1,
-        figsize=(FIG_WIDTH, FIG_HEIGHT),
-        sharex=False,
-        gridspec_kw={"height_ratios": [1.0, 1.0]},
+def plot_stacked_pmf_cdf(curves, plot_max_t, n_bins, ymax_bin=None):
+    """Draw this experiment’s rejection-time distributions in the shared layout."""
+    curves = ordered_curves_for_plot(curves)
+    colors = [curve_color(c) for c in curves]
+    linestyles = [curve_cdf_linestyle(c) for c in curves]
+    return plot_rejection_times(
+        curves,
+        colors,
+        linestyles,
+        min(plot_max_t, HORIZON),
+        n_bins,
+        style="bernoulli",
+        ymax_bin=ymax_bin,
     )
 
-    # ========================================================
-    # Top panel: grouped coarse-binned PMF histogram
-    # ========================================================
-    for j, (left, right) in enumerate(zip(lefts, rights)):
-        if j % 2 == 0:
-            ax1.axvspan(left, right, color=BIN_SHADE_COLOR, zorder=0)
-        ax1.axvline(left, color=BIN_EDGE_COLOR, linewidth=BIN_EDGE_LW, zorder=1)
 
-    ax1.axvline(rights[-1], color=BIN_EDGE_COLOR, linewidth=BIN_EDGE_LW, zorder=1)
-
-    n_channels = len(ordered_curves)
-
-    for j, (left, right) in enumerate(zip(lefts, rights)):
-        width = right - left
-        usable_width = width * (1.0 - 2.0 * OUTER_MARGIN_FRAC)
-        gap = width * INNER_GAP_FRAC
-        bar_width = (usable_width - (n_channels - 1) * gap) / n_channels
-        x_start = left + width * OUTER_MARGIN_FRAC
-
-        for k, (pmf_bin, color, linestyle) in enumerate(
-            zip(pmf_bins, colors, cdf_linestyles)
-        ):
-            x0 = x_start + k * (bar_width + gap)
-            x_center = x0 + 0.5 * bar_width
-            y = pmf_bin[j]
-
-            face_color = fade_color(color, blend=BAR_FACE_BLEND)
-            edge_color = fade_color(color, blend=BAR_EDGE_BLEND)
-
-            ax1.bar(
-                x=x0,
-                height=y,
-                width=bar_width,
-                align="edge",
-                color=face_color,
-                edgecolor=edge_color,
-                linewidth=BAR_EDGE_LW,
-                zorder=3,
-            )
-
-            ax1.hlines(
-                y,
-                x0,
-                x0 + bar_width,
-                color=color,
-                linewidth=BAR_TOP_LW,
-                zorder=4,
-            )
-
-            # Central vertical cue matching the CDF linestyle. This makes the
-            # histogram readable in grayscale and for color-vision deficiencies.
-            ax1.vlines(
-                x_center,
-                0.0,
-                y,
-                color=color,
-                linewidth=0.9,
-                linestyle=linestyle,
-                zorder=4,
-            )
-
-    ax1.set_xlim(1, plot_horizon + 1)
-    ax1.set_ylim(0.0, ymax_bin)
-    ax1.grid(axis="y", alpha=0.18)
-
-    top_ticks = [0.0, 0.1, 0.2, 0.3, 0.4]
-    top_ticks = [tick for tick in top_ticks if tick <= ymax_bin + 1e-12]
-
-    ax1.set_yticks(top_ticks)
-    ax1.set_yticklabels([tick_label_decimal(tick) for tick in top_ticks], fontsize=TICK_FONTSIZE)
-    ax1.tick_params(axis="y", length=2.5, width=0.7, pad=1)
-
-    ax1.set_ylabel(
-        r"$\pi_1^{\otimes}(\tau \in \mathrm{bin})$",
-        fontsize=AXIS_LABEL_FONTSIZE,
-    )
-
-    # Legend uses the same line styles as the CDF panel, so it remains
-    # interpretable in grayscale.
-    handles = [
-        Line2D(
-            [0],
-            [0],
-            color=color,
-            lw=BAR_TOP_LW + 0.9,
-            linestyle=linestyle,
-            label=label,
-        )
-        for color, linestyle, label in zip(colors, cdf_linestyles, labels)
-    ]
-
-    ax1.legend(
-        handles=handles,
-        loc="upper right",
-        fontsize=LEGEND_FONTSIZE,
-        ncol=2,
-        frameon=True,
-        handlelength=2.2,
-        columnspacing=1.0,
-        borderpad=0.25,
-    )
-
-    # ========================================================
-    # Bottom panel: CDF
-    # ========================================================
-    for cdf, color, linestyle in zip(cdfs, colors, cdf_linestyles):
-        ax2.step(
-            times,
-            cdf,
-            where="post",
-            color=color,
-            linewidth=CDF_LW,
-            linestyle=linestyle,
-        )
-
-    ax2.set_xlim(1, plot_horizon)
-    ax2.set_ylim(0.0, 1.0)
-    ax2.grid(axis="y", alpha=0.18)
-
-    ax2.set_yticks([0.0, 0.5, 1.0])
-    ax2.set_yticklabels([r"$0$", r"$0.5$", r"$1$"], fontsize=TICK_FONTSIZE)
-    ax2.tick_params(axis="y", length=2.5, width=0.7, pad=1)
-
-    ax2.set_ylabel(
-        r"$\pi_1^{\otimes}(\tau \leq t)$",
-        fontsize=AXIS_LABEL_FONTSIZE,
-    )
-
-    # ========================================================
-    # X-axes
-    # Top panel uses bin/channel tick labels only.
-    # Bottom panel uses standard time ticks and the sole x-label.
-    # ========================================================
-    centers = 0.5 * (lefts + rights - 1)
-    bin_tick_labels = [
-        rf"${left}\!-\!{right - 1}$" if (right - left) > 1 else rf"${left}$"
-        for left, right in zip(lefts, rights)
-    ]
-
-    ax1.set_xticks(centers[::XTICK_EVERY])
-    ax1.set_xticklabels(
-        bin_tick_labels[::XTICK_EVERY],
-        rotation=30,
-        ha="right",
-        fontsize=TICK_FONTSIZE,
-    )
-    ax1.tick_params(axis="x", length=2.5, width=0.7, pad=1)
-    ax1.set_xlabel("")
-
-    standard_ticks = np.arange(0, plot_horizon + 1, 20)
-    standard_ticks[0] = 1
-
-    ax2.set_xticks(standard_ticks)
-    ax2.set_xticklabels(
-        [rf"${int(t)}$" for t in standard_ticks],
-        fontsize=TICK_FONTSIZE,
-    )
-    ax2.tick_params(axis="x", length=2.5, width=0.7, pad=1)
-    ax2.set_xlabel(r"rejection time", fontsize=AXIS_LABEL_FONTSIZE)
-
-    fig.tight_layout(h_pad=0.45)
-    return fig
-
-
-# ============================================================
 # Saving
-# ============================================================
+
 
 def save_results(result: dict[str, Any]) -> None:
+    """Save the parameters and numerical results."""
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     result["summary"].to_csv(OUT_CSV, index=False)
 
@@ -1045,11 +758,11 @@ def save_results(result: dict[str, Any]) -> None:
         )
 
 
-# ============================================================
 # Main
-# ============================================================
+
 
 def main() -> None:
+    """Run the experiment and save its outputs."""
     configure_fonts()
     plt.close("all")
 

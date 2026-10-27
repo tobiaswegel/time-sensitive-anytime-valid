@@ -1,31 +1,49 @@
-This repository contains anonymized supplementary code used to generate the submission figures.
+# Time-sensitive anytime-valid testing
 
-The code was run with Python 3.13.5, NumPy 2.3.5, Matplotlib 3.10.8, and pandas 2.2.3. The Python package pins are also listed in `requirements.txt`.
+Code for Figures 1–6 of the paper. No datasets are needed.
 
-## Setup
+## Reproduce all plots
+
+Use Python 3.12 (tested with 3.12.7). From this repository's root, run:
 
 ```bash
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
-python3 -m pip install -r requirements.txt
+python -m pip install -r requirements-lock.txt
+python reproduce.py
 ```
 
-## Recreating Figures
+The command uses the paper's simulation sizes and fixed seeds. It saves all plots,
+numerical results, and logs in `results/`. On the tested Mac, the full run takes
+about one minute. Figures 3 and 4 also have PDF versions.
 
-Each script can be run directly with `python3`. Generated figures, CSV summaries, and JSON result files are intentionally ignored by Git.
+| Figure | Plot | File in `results/` |
+| --- | --- | --- |
+| 1 | Gaussian optimal-action heatmaps | `figure_1.png` |
+| 2 | Bernoulli hard deadlines versus GRO | `bernoulli_hard_deadline_vs_gro_stacked_small.png` |
+| 3 | Bernoulli EDO, capped EDO, and Bellman | `bernoulli_edo_bellman_stacked_colorblind.png` |
+| 4 | Gaussian GRO versus EDO | `gaussian_uncapped_gro_vs_approx_stacked.png` |
+| 5 | Bernoulli power and bounds | `figure_5.png` |
+| 6 | Comparison with horizon-aware baselines | `figure_6.png` |
 
-To recreate the exact heatmap, run:
+To reproduce just one plot, for example Figure 3:
 
 ```bash
-python3 optimal_bet_heatmap_gaussian.py --horizon 150 --mu0 0 --mu1 0.6 --sigma 1 --no-linear --max-t-plot 50 --time-scale 30 --exp-time-scale 15 --beta 5 --cdf-mode normal --color-limits panel --quantity lambda
+python reproduce.py --figures 3
 ```
 
-The remaining scripts generate the other submission images:
+`reproduce.py` contains the exact commands. Each plotting script contains its
+settings and can also run independently. `results/run_manifest.json` records the
+commands, Python version, package versions, and runtime of each requested figure.
+
+Figure 1 uses logistic scale **5**, exponential scale **15**, and normal simulations,
+which exactly reproduce the image in the supplied PDF. Appendix D.1 describes
+different settings; see [verification notes](VERIFICATION.md). Fonts can affect
+pixel-level rendering: the original figures use Times New Roman, with fallbacks
+when it is unavailable.
+
+## Check the calculations
 
 ```bash
-python3 Bernoulli_EDO_vs_EDO_capped_vs_Bellman.py
-python3 gauss_GRO_vs_EDO.py
-python3 hard_deadline_Bernoulli.py
-python3 literature_comparison.py
-python3 power_plot.py
+MPLBACKEND=Agg python -m unittest discover -s tests -v
 ```
