@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from plotting import plot_rejection_times
-from utils import discounted_value_from_tau, tau_to_pmf_cdf
+from utils import discounted_value_from_tau, save_figure, tau_to_pmf_cdf
 
 # Configuration
 
@@ -36,10 +36,10 @@ DPI = 450
 N_BINS_TOTAL = 15
 
 OUT_DIR = Path(".")
-OUT_STACKED_PNG = OUT_DIR / "gaussian_uncapped_gro_vs_approx_stacked.png"
-OUT_STACKED_PDF = OUT_DIR / "gaussian_uncapped_gro_vs_approx_stacked.pdf"
-OUT_CSV = OUT_DIR / "gaussian_uncapped_gro_vs_approx_summary.csv"
-OUT_JSON = OUT_DIR / "gaussian_uncapped_gro_vs_approx_curves.json"
+OUT_FIG_PNG = OUT_DIR / "figure_4.png"
+OUT_FIG_PDF = OUT_DIR / "figure_4.pdf"
+OUT_CSV = OUT_DIR / "figure_4.csv"
+OUT_JSON = OUT_DIR / "figure_4.json"
 
 # Plot style
 
@@ -450,14 +450,13 @@ def main() -> None:
         ymax_bin=None,
     )
 
-    fig_stacked.savefig(OUT_STACKED_PNG, dpi=DPI)
-    fig_stacked.savefig(OUT_STACKED_PDF)
+    save_figure(fig_stacked, OUT_FIG_PNG, dpi=DPI)
 
     save_results(result)
 
     print("\nSaved:")
-    print(f"  {OUT_STACKED_PNG}")
-    print(f"  {OUT_STACKED_PDF}")
+    print(f"  {OUT_FIG_PNG}")
+    print(f"  {OUT_FIG_PDF}")
     print(f"  {OUT_CSV}")
     print(f"  {OUT_JSON}")
 

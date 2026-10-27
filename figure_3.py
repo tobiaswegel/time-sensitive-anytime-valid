@@ -14,6 +14,7 @@ import pandas as pd
 from plotting import plot_rejection_times
 from utils import (
     discounted_value_from_tau,
+    save_figure,
     tau_to_pmf_cdf,
 )
 
@@ -45,10 +46,10 @@ DPI = 450
 N_BINS_TOTAL = 15
 
 OUT_DIR = Path(".")
-OUT_FIG_PNG = OUT_DIR / "bernoulli_edo_bellman_stacked_colorblind.png"
-OUT_FIG_PDF = OUT_DIR / "bernoulli_edo_bellman_stacked_colorblind.pdf"
-OUT_CSV = OUT_DIR / "bernoulli_edo_bellman_colorblind_summary.csv"
-OUT_JSON = OUT_DIR / "bernoulli_edo_bellman_colorblind_curves.json"
+OUT_FIG_PNG = OUT_DIR / "figure_3.png"
+OUT_FIG_PDF = OUT_DIR / "figure_3.pdf"
+OUT_CSV = OUT_DIR / "figure_3.csv"
+OUT_JSON = OUT_DIR / "figure_3.json"
 
 # Plot style
 
@@ -777,8 +778,7 @@ def main() -> None:
     )
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    fig.savefig(OUT_FIG_PNG, dpi=DPI)
-    fig.savefig(OUT_FIG_PDF)
+    save_figure(fig, OUT_FIG_PNG, dpi=DPI)
     save_results(result)
 
     print("\nSaved:")

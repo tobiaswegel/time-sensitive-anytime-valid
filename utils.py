@@ -1,6 +1,7 @@
 """Small helpers for rejection times and plot formatting."""
 
 import math
+from pathlib import Path
 
 import numpy as np
 from matplotlib.colors import to_rgb
@@ -50,3 +51,13 @@ def tick_label_decimal(value: float) -> str:
         return r"$0$"
     text = f"{value:.2f}".rstrip("0").rstrip(".")
     return rf"${text}$"
+
+
+def save_figure(figure, output_path, dpi=450):
+    """Save PNG and PDF versions of a figure with the same filename stem."""
+    stem = Path(output_path)
+    stem.parent.mkdir(parents=True, exist_ok=True)
+    paths = tuple(stem.with_suffix(suffix) for suffix in (".png", ".pdf"))
+    for path in paths:
+        figure.savefig(path, dpi=dpi, bbox_inches="tight")
+    return paths

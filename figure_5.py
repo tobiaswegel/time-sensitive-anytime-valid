@@ -11,6 +11,8 @@ from typing import Any
 
 import numpy as np
 
+from utils import save_figure
+
 # Core helpers
 
 
@@ -392,12 +394,12 @@ def configure_plot_fonts(plt_module) -> None:
             "mathtext.rm": "STIXGeneral",
             "mathtext.it": "STIXGeneral:italic",
             "mathtext.bf": "STIXGeneral:bold",
-            "font.size": 14,
-            "axes.labelsize": 16,
-            "legend.fontsize": 12,
-            "xtick.labelsize": 13,
-            "ytick.labelsize": 13,
-            "axes.linewidth": 1.1,
+            "font.size": 11,
+            "axes.labelsize": 10.2,
+            "legend.fontsize": 8.2,
+            "xtick.labelsize": 8.5,
+            "ytick.labelsize": 8.5,
+            "axes.linewidth": 1.0,
         }
     )
 
@@ -427,65 +429,69 @@ def maybe_plot(
     upper = np.array([row["prop_upper"] for row in results], dtype=float)
     threshold_t = float(results[0]["threshold_T"])
 
-    fig, ax = plt.subplots(figsize=(6, 4))
+    fig, ax = plt.subplots(figsize=(6.2, 3.25))
 
-    ax.errorbar(
+    power_handle = ax.errorbar(
         t_values,
         power,
         yerr=np.vstack([power - ci_low, ci_high - power]),
         fmt="o-",
         color="tab:blue",
         ecolor="tab:blue",
-        elinewidth=1.25,
-        capsize=3.5,
-        capthick=1.25,
-        markersize=5.5,
-        linewidth=2.0,
+        elinewidth=0.9,
+        capsize=2.5,
+        capthick=0.9,
+        markersize=3.5,
+        linewidth=1.45,
         label="Power",
     )
 
-    ax.plot(
+    (lower_handle,) = ax.plot(
         t_values,
         lower,
         linestyle="--",
         color="tab:orange",
-        linewidth=2.0,
+        linewidth=1.45,
         label="Lower bound",
     )
-    ax.plot(
+    (upper_handle,) = ax.plot(
         t_values,
         upper,
         linestyle="-.",
         color="tab:green",
-        linewidth=2.0,
+        linewidth=1.45,
         label="Upper bound",
     )
-    ax.axvline(
+    threshold_handle = ax.axvline(
         threshold_t,
         color="black",
         linestyle=":",
-        linewidth=1.6,
+        linewidth=1.05,
         label=rf"$1/\mathrm{{KL}} = {threshold_t:.3f}$",
     )
 
     ax.set_xlabel(r"time scale $T$")
-    ax.set_ylabel(r"power under $\pi_1^{\otimes}$")
-    ax.set_ylim(-0.02, 1.02)
-    ax.grid(True, alpha=0.25)
+    ax.set_ylabel(r"$\pi_1^{\otimes}(\tau < \infty)$")
+    ax.set_ylim(0.0, 1.02)
+    ax.set_yticks([0.0, 0.5, 1.0], labels=[r"$0$", r"$0.5$", r"$1$"])
+    ax.tick_params(length=2.5, width=0.7, pad=1)
+    ax.grid(axis="y", alpha=0.18)
 
     ax.legend(
+        handles=[power_handle, lower_handle, upper_handle, threshold_handle],
         loc="lower right",
-        framealpha=0.95,
-        handlelength=2.3,
-        borderpad=0.35,
-        labelspacing=0.35,
+        ncol=2,
+        frameon=True,
+        handlelength=2.2,
+        columnspacing=1.0,
+        borderpad=0.25,
     )
 
     fig.tight_layout()
 
-    save_path = output_path or "power_proposition_bernoulli.png"
-    fig.savefig(save_path, dpi=450, bbox_inches="tight")
-    print(f"Saved plot to {save_path}")
+    save_path = output_path or "figure_5.png"
+    paths = save_figure(fig, save_path)
+    print("Saved plots: " + ", ".join(map(str, paths)))
 
     if show_plot:
         plt.show()
@@ -552,7 +558,7 @@ def parse_args() -> argparse.Namespace:
         "--output",
         type=str,
         default="",
-        help="Optional path to save the figure.",
+        help="Figure path; both PNG and PDF versions are saved.",
     )
     parser.add_argument(
         "--results-path",

@@ -12,6 +12,7 @@ import pandas as pd
 
 from bernoulli import exact_constant_bernoulli_curve, exact_doob_curve
 from plotting import plot_rejection_times
+from utils import save_figure
 
 # Configuration
 
@@ -30,9 +31,10 @@ DPI = 450
 N_BINS_TOTAL = 6
 
 OUT_DIR = Path(".")
-OUT_FIG_PNG = OUT_DIR / "bernoulli_hard_deadline_vs_gro_stacked_small.png"
-OUT_CSV = OUT_DIR / "bernoulli_hard_deadline_vs_gro_summary.csv"
-OUT_JSON = OUT_DIR / "bernoulli_hard_deadline_vs_gro_curves.json"
+OUT_FIG_PNG = OUT_DIR / "figure_2.png"
+OUT_FIG_PDF = OUT_DIR / "figure_2.pdf"
+OUT_CSV = OUT_DIR / "figure_2.csv"
+OUT_JSON = OUT_DIR / "figure_2.json"
 
 # Plot style
 
@@ -256,13 +258,14 @@ def main() -> None:
     )
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    fig.savefig(OUT_FIG_PNG, dpi=DPI)
+    save_figure(fig, OUT_FIG_PNG, dpi=DPI)
     save_results(result)
 
     plt.show()
 
     print("\nSaved:")
     print(f"  {OUT_FIG_PNG}")
+    print(f"  {OUT_FIG_PDF}")
     print(f"  {OUT_CSV}")
     print(f"  {OUT_JSON}")
 

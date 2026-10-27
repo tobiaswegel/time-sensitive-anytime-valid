@@ -7,6 +7,8 @@ import os
 
 import numpy as np
 
+from utils import save_figure
+
 
 def build_lambda_grid(mu0, mu1, sigma, n_actions, lambda_max, two_sided):
     """Create the Gaussian betting-action grid in the alternative’s direction."""
@@ -599,9 +601,9 @@ def maybe_plot(
         cbar = fig.colorbar(image, ax=heatmap_axes, location="right", pad=0.02)
         cbar.set_label(colorbar_label)
 
-    save_path = output_path or f"optimal_bet_heatmap_gaussian_{quantity}.png"
-    fig.savefig(save_path, dpi=400, bbox_inches="tight")
-    print(f"Saved plot to {save_path}")
+    save_path = output_path or "figure_1.png"
+    paths = save_figure(fig, save_path, dpi=400)
+    print("Saved plots: " + ", ".join(map(str, paths)))
 
     if show_plot:
         plt.show()

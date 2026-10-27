@@ -5,13 +5,14 @@ from __future__ import annotations
 import argparse
 import math
 import os
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from bernoulli import exact_constant_bernoulli_curve
 from bernoulli import exact_doob_curve as doob_curve
-from utils import aggregate_pmf_on_bins, fade_color, make_time_bins, tau_to_pmf_cdf
+from utils import aggregate_pmf_on_bins, fade_color, make_time_bins, save_figure, tau_to_pmf_cdf
 
 
 def exact_doob_curve(T, p0, p1, alpha, horizon=None):
@@ -700,7 +701,7 @@ def plot_cdfs_multi_horizon(args: argparse.Namespace) -> list[dict[str, Any]]:
     )
 
     fig.tight_layout(rect=[0, 0.0, 1, 0.94])
-    fig.savefig(args.output, dpi=args.dpi, bbox_inches="tight")
+    save_figure(fig, args.output, dpi=args.dpi)
     plt.close(fig)
 
     return summaries
@@ -783,8 +784,8 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--output",
-        default="hard_deadline_stacked_with_edo.png",
-        help="Output PNG path.",
+        default="figure_6.png",
+        help="Figure path; both PNG and PDF versions are saved.",
     )
     parser.add_argument("--dpi", type=int, default=400, help="Output image DPI.")
     parser.add_argument("--panel-width", type=float, default=4.0, help="Width per panel.")
@@ -813,7 +814,9 @@ def main() -> None:
     args = parse_args()
     summaries = plot_cdfs_multi_horizon(args)
 
-    print(f"Saved plot to: {args.output}")
+    print(
+        f"Saved plots: {Path(args.output).with_suffix('.png')} and {Path(args.output).with_suffix('.pdf')}"
+    )
 
     for summary in summaries:
         H = summary["horizon"]
@@ -840,7 +843,7 @@ def main() -> None:
             print(f"{curve['label']}: hit by T = {curve['cdf'][-1]:.12g}")
 
     if args.show:
-        display_plot_if_possible(args.output)
+        display_plot_if_possible(str(Path(args.output).with_suffix(".png")))
 
 
 if __name__ == "__main__":

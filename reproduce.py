@@ -12,7 +12,7 @@ from pathlib import Path
 
 FIGURES = {
     "1": [
-        "optimal_bet_heatmap_gaussian.py",
+        "figure_1.py",
         "--horizon",
         "150",
         "--mu0",
@@ -44,11 +44,11 @@ FIGURES = {
         "--results-path",
         "figure_1.json",
     ],
-    "2": ["hard_deadline_Bernoulli.py"],
-    "3": ["Bernoulli_EDO_vs_EDO_capped_vs_Bellman.py"],
-    "4": ["gauss_GRO_vs_EDO.py"],
+    "2": ["figure_2.py"],
+    "3": ["figure_3.py"],
+    "4": ["figure_4.py"],
     "5": [
-        "power_plot.py",
+        "figure_5.py",
         "--seed",
         "0",
         "--no-plot",
@@ -58,7 +58,7 @@ FIGURES = {
         "figure_5.json",
     ],
     "6": [
-        "literature_comparison.py",
+        "figure_6.py",
         "--seed",
         "0",
         "--no-show",

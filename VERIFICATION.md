@@ -6,15 +6,16 @@ untouched scripts in `time-sensitive-anytime-valid-5CD7/`.
 ## Reproduction checks
 
 - Ran all six original scripts at full simulation sizes, then ran all six cleaned
-  scripts with the same settings. All six PNG images were pixel-identical between
-  the original and cleaned code. All three CSV files were byte-identical; all five
+  scripts with the same settings. Before the requested Figure 5 restyling, all six
+  PNG images were pixel-identical between the original and cleaned code. All three CSV files were byte-identical; all five
   saved JSON result objects were equal.
 - Extracted the embedded Figure 1 image from the paper: the reproduced image was
   pixel-identical, including the heatmaps and simulated CDFs.
 - Checked the other figures against the paper and its experimental descriptions.
   Their embedded PDF images are not all pixel-identical to the supplied scripts'
   output, so exact raster reproduction of those PDF images is not established.
-  The cleanup preserves the supplied scripts' plots and numerical results.
+  The numerical results are preserved; Figure 5 now uses the requested matching
+  plot style.
 - Ran ten independent numerical checks: exhaustive binary-path calculations for
   constant and Doob strategies; the stated Neyman–Pearson boundary sizes; null
   rejection control at deadlines 10, 20, 25, and 100; fairness and overshoot control
@@ -64,3 +65,12 @@ for any nonempty rejection event at the requested level. The power simulation no
 rejects nonpositive sample sizes, batch sizes, and step limits, and invalid
 truncation tolerances. In particular, batch size zero previously caused an infinite
 loop. These changes do not affect any of the paper's default runs.
+
+## Figure naming and formats
+
+The plotting scripts are now `figure_1.py` through `figure_6.py`. Every script saves
+both `figure_N.png` and `figure_N.pdf`; numerical outputs use the same stem.
+Figure 5 uses the smaller fonts, line widths, horizontal grid, and compact legend
+of the other distribution plots. This styling change leaves its estimates and
+bounds unchanged. All six figures were regenerated, all twelve image files were
+checked, and the numerical tests were rerun after these changes.

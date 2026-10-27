@@ -8,10 +8,10 @@ import numpy as np
 from numpy.testing import assert_allclose
 
 import bernoulli
-import Bernoulli_EDO_vs_EDO_capped_vs_Bellman as bellman
-import gauss_GRO_vs_EDO as gaussian
-import optimal_bet_heatmap_gaussian as heatmap
-import power_plot as power
+import figure_1 as heatmap
+import figure_3 as bellman
+import figure_4 as gaussian
+import figure_5 as power
 
 
 class NumericalChecks(unittest.TestCase):

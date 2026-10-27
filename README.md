@@ -1,5 +1,7 @@
 # Time-sensitive anytime-valid testing
 
+This repository provides the code to reproduce the figures in the paper "Time-sensitive anytime-valid testing" by Eugenio Clerico, Tobias Wegel, Iskander Azangulov, and Patrick Rebeschini, published at NeurIPS 2026.
+
 Code for Figures 1–6 of the paper. No datasets are needed.
 
 ## Reproduce all plots
@@ -15,16 +17,16 @@ python reproduce.py
 
 The command uses the paper's simulation sizes and fixed seeds. It saves all plots,
 numerical results, and logs in `results/`. On the tested Mac, the full run takes
-about one minute. Figures 3 and 4 also have PDF versions.
+about one minute. Every plot is saved as both PNG and PDF.
 
-| Figure | Plot | File in `results/` |
+| Figure | Script | Outputs in `results/` |
 | --- | --- | --- |
-| 1 | Gaussian optimal-action heatmaps | `figure_1.png` |
-| 2 | Bernoulli hard deadlines versus GRO | `bernoulli_hard_deadline_vs_gro_stacked_small.png` |
-| 3 | Bernoulli EDO, capped EDO, and Bellman | `bernoulli_edo_bellman_stacked_colorblind.png` |
-| 4 | Gaussian GRO versus EDO | `gaussian_uncapped_gro_vs_approx_stacked.png` |
-| 5 | Bernoulli power and bounds | `figure_5.png` |
-| 6 | Comparison with horizon-aware baselines | `figure_6.png` |
+| 1 | `figure_1.py` | `figure_1.png`, `figure_1.pdf` |
+| 2 | `figure_2.py` | `figure_2.png`, `figure_2.pdf` |
+| 3 | `figure_3.py` | `figure_3.png`, `figure_3.pdf` |
+| 4 | `figure_4.py` | `figure_4.png`, `figure_4.pdf` |
+| 5 | `figure_5.py` | `figure_5.png`, `figure_5.pdf` |
+| 6 | `figure_6.py` | `figure_6.png`, `figure_6.pdf` |
 
 To reproduce just one plot, for example Figure 3:
 
@@ -46,4 +48,17 @@ when it is unavailable.
 
 ```bash
 MPLBACKEND=Agg python -m unittest discover -s tests -v
+```
+
+## Citation
+
+If you use this work, please cite:
+
+```bibtex
+@inproceedings{clerico2026time,
+  title = {Time-sensitive anytime-valid testing},
+  author = {Clerico, Eugenio and Wegel, Tobias and Azangulov, Iskander and Rebeschini, Patrick},
+  booktitle = {Advances in Neural Information Processing Systems},
+  year = {2026}
+}
 ```
