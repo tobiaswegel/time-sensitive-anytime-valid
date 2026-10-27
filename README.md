@@ -1,5 +1,7 @@
 # Time-sensitive anytime-valid testing
 
+[![arXiv](https://img.shields.io/badge/arXiv-2605.06521-b31b1b.svg)](https://arxiv.org/abs/2605.06521)
+
 This repository provides the code to reproduce the figures in the paper "Time-sensitive anytime-valid testing" by Eugenio Clerico, Tobias Wegel, Iskander Azangulov, and Patrick Rebeschini, published at NeurIPS 2026.
 
 Code for Figures 1–6 of the paper. No datasets are needed.
