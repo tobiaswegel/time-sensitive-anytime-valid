@@ -5,10 +5,8 @@ __pycache__/
 .ruff_cache/
 .DS_Store
 
-# Reproduction outputs and local validation material
+# Reproduction outputs
 results/
-validation/
-time-sensitive-anytime-valid-5CD7/
 /time_for_coins-7.pdf
 
 # Outputs when individual scripts run from the repository root

@@ -394,12 +394,12 @@ def configure_plot_fonts(plt_module) -> None:
             "mathtext.rm": "STIXGeneral",
             "mathtext.it": "STIXGeneral:italic",
             "mathtext.bf": "STIXGeneral:bold",
-            "font.size": 11,
-            "axes.labelsize": 10.2,
-            "legend.fontsize": 8.2,
-            "xtick.labelsize": 8.5,
-            "ytick.labelsize": 8.5,
-            "axes.linewidth": 1.0,
+            "font.size": 14,
+            "axes.labelsize": 16,
+            "legend.fontsize": 12,
+            "xtick.labelsize": 13,
+            "ytick.labelsize": 13,
+            "axes.linewidth": 1.1,
         }
     )
 
@@ -429,9 +429,9 @@ def maybe_plot(
     upper = np.array([row["prop_upper"] for row in results], dtype=float)
     threshold_t = float(results[0]["threshold_T"])
 
-    fig, ax = plt.subplots(figsize=(6.2, 3.25))
+    fig, ax = plt.subplots(figsize=(6, 4))
 
-    power_handle = ax.errorbar(
+    ax.errorbar(
         t_values,
         power,
         yerr=np.vstack([power - ci_low, ci_high - power]),
@@ -446,7 +446,7 @@ def maybe_plot(
         label="Power",
     )
 
-    (lower_handle,) = ax.plot(
+    ax.plot(
         t_values,
         lower,
         linestyle="--",
@@ -454,7 +454,7 @@ def maybe_plot(
         linewidth=1.45,
         label="Lower bound",
     )
-    (upper_handle,) = ax.plot(
+    ax.plot(
         t_values,
         upper,
         linestyle="-.",
@@ -462,7 +462,7 @@ def maybe_plot(
         linewidth=1.45,
         label="Upper bound",
     )
-    threshold_handle = ax.axvline(
+    ax.axvline(
         threshold_t,
         color="black",
         linestyle=":",
@@ -471,20 +471,16 @@ def maybe_plot(
     )
 
     ax.set_xlabel(r"time scale $T$")
-    ax.set_ylabel(r"$\pi_1^{\otimes}(\tau < \infty)$")
-    ax.set_ylim(0.0, 1.02)
-    ax.set_yticks([0.0, 0.5, 1.0], labels=[r"$0$", r"$0.5$", r"$1$"])
-    ax.tick_params(length=2.5, width=0.7, pad=1)
+    ax.set_ylabel(r"power under $\pi_1^{\otimes}$")
+    ax.set_ylim(-0.02, 1.02)
     ax.grid(axis="y", alpha=0.18)
 
     ax.legend(
-        handles=[power_handle, lower_handle, upper_handle, threshold_handle],
         loc="lower right",
-        ncol=2,
-        frameon=True,
-        handlelength=2.2,
-        columnspacing=1.0,
-        borderpad=0.25,
+        framealpha=0.95,
+        handlelength=2.3,
+        borderpad=0.35,
+        labelspacing=0.35,
     )
 
     fig.tight_layout()

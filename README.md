@@ -38,11 +38,7 @@ python reproduce.py --figures 3
 settings and can also run independently. `results/run_manifest.json` records the
 commands, Python version, package versions, and runtime of each requested figure.
 
-Figure 1 uses logistic scale **5**, exponential scale **15**, and normal simulations,
-which exactly reproduce the image in the supplied PDF. Appendix D.1 describes
-different settings; see [verification notes](VERIFICATION.md). Fonts can affect
-pixel-level rendering: the original figures use Times New Roman, with fallbacks
-when it is unavailable.
+The plots use Times New Roman when available, with fallback fonts otherwise.
 
 ## Check the calculations
 
